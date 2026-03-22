@@ -439,28 +439,15 @@ function getScheduledThisWeek() {
 async function fetchClickUpTasks(apiToken, teamId) {
   if (!apiToken || !teamId) return [];
   try {
-    // Check if fetch is available
-    // Use XMLHttpRequest instead of fetch() to avoid NotePlan's
-    // built-in loading overlay that displays the raw URL.
-    function doFetch(url) {
-      return new Promise(function(resolve, reject) {
-        var xhr = new XMLHttpRequest();
-        xhr.open('GET', url, true);
-        xhr.setRequestHeader('Authorization', apiToken);
-        xhr.onload = function() {
-          if (xhr.status >= 200 && xhr.status < 300) {
-            resolve(xhr.responseText);
-          } else {
-            console.log('Reflect: XHR error ' + xhr.status + ': ' + xhr.responseText.substring(0, 200));
-            reject(new Error('HTTP ' + xhr.status));
-          }
-        };
-        xhr.onerror = function() {
-          console.log('Reflect: XHR network error');
-          reject(new Error('Network error'));
-        };
-        xhr.send();
-      });
+    // Use fetch() — NotePlan shows a loading overlay with the URL,
+    // but XMLHttpRequest is not available in this environment.
+    async function doFetch(url) {
+      var resp = await fetch(url, { method: 'GET', headers: { 'Authorization': apiToken } });
+      if (resp && typeof resp.text === 'function') return await resp.text();
+      if (typeof resp === 'string') return resp;
+      if (resp && resp.body) return typeof resp.body === 'string' ? resp.body : JSON.stringify(resp.body);
+      if (resp && resp.data) return typeof resp.data === 'string' ? resp.data : JSON.stringify(resp.data);
+      return JSON.stringify(resp);
     }
 
     // Step 1: Get authorized user to find their member ID
