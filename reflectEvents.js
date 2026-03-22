@@ -662,6 +662,16 @@ document.addEventListener('DOMContentLoaded', function() {
       case 'completeFocusTask':
         handleCompleteFocusTask(target);
         break;
+      case 'startFocusFromToday':
+        sendMessageToPlugin('startFocusFromToday', JSON.stringify({ taskContent: target.dataset.content }));
+        break;
+      case 'stopFocusFromToday':
+        sendMessageToPlugin('stopFocusFromToday', JSON.stringify({}));
+        break;
+      case 'movePlanUp':
+      case 'movePlanDown':
+        sendMessageToPlugin(action, JSON.stringify({ lineIndex: target.dataset.lineIndex }));
+        break;
       case 'addToPlanWithDuration':
         handleAddToPlanWithDuration(target);
         break;

@@ -269,6 +269,34 @@ function getPlanTasks(note) {
   return tasks;
 }
 
+/**
+ * Parse the Focus section log to calculate actual focused time per task.
+ * Returns a map of task content → total minutes focused.
+ */
+function getFocusedTimeMap(note) {
+  var map = {};
+  var range = findSectionRange(note, 'Focus', 2);
+  if (!range) return map;
+
+  var paras = note.paragraphs;
+  for (var i = range.start; i < range.end; i++) {
+    var p = paras[i];
+    if (p.type !== 'list') continue;
+    var doneMatch = p.content.match(/\*done focusing on:\*\s+(.+?)\s+\((\d+(?:\.\d+)?h(?:\s*\d+m)?|\d+m)\)\s*$/);
+    if (doneMatch) {
+      var taskContent = doneMatch[1];
+      var durStr = doneMatch[2];
+      var mins = 0;
+      var hm = durStr.match(/(\d+(?:\.\d+)?)h/);
+      var mm = durStr.match(/(\d+)m/);
+      if (hm) mins += parseFloat(hm[1]) * 60;
+      if (mm) mins += parseInt(mm[1], 10);
+      map[taskContent] = (map[taskContent] || 0) + mins;
+    }
+  }
+  return map;
+}
+
 // ============================================
 // TASK SOURCE SCANNING
 // ============================================
@@ -963,41 +991,123 @@ function buildCalendarSourceTask(event, planContentSet) {
   return html;
 }
 
-function buildTodayTab(planTasks) {
-  var remaining = planTasks.filter(function(t) { return !t.isComplete; });
-  var completed = planTasks.filter(function(t) { return t.isComplete; });
+function formatMinutes(mins) {
+  if (mins <= 0) return '';
+  var h = Math.floor(mins / 60);
+  var m = Math.round(mins % 60);
+  if (h > 0) return h + 'h' + (m > 0 ? ' ' + m + 'm' : '');
+  return m + 'm';
+}
 
-  // Calculate total estimated time
-  var totalMinutes = 0;
-  for (var t = 0; t < remaining.length; t++) {
-    var est = extractTimeEstimate(remaining[t].content).estimate;
-    if (est) {
-      var hMatch = est.match(/(\d+(?:\.\d+)?)h/);
-      var mMatch = est.match(/(\d+)m/);
-      if (hMatch) totalMinutes += parseFloat(hMatch[1]) * 60;
-      if (mMatch) totalMinutes += parseInt(mMatch[1], 10);
+function parseEstimateMinutes(est) {
+  if (!est) return 0;
+  var mins = 0;
+  var hm = est.match(/(\d+(?:\.\d+)?)h/);
+  var mm = est.match(/(\d+)m/);
+  if (hm) mins += parseFloat(hm[1]) * 60;
+  if (mm) mins += parseInt(mm[1], 10);
+  return mins;
+}
+
+function buildTodayPlanItem(task, index, totalCount, focusMap, timerState) {
+  var isDone = task.isComplete;
+  var parsed = extractTimeEstimate(task.content);
+  var contentHTML = renderTaskContent(parsed.content);
+  var estimateMin = parseEstimateMinutes(parsed.estimate);
+
+  // Look up actual focused time — match against the raw content without time estimate
+  var actualMin = focusMap[parsed.content] || 0;
+
+  // Check if this task is currently being focused on
+  var isFocusing = timerState && timerState.startTime && timerState.taskContent === parsed.content;
+
+  var cbClass = isDone ? 'checklistDone' : 'checklist';
+  var cbIcon = isDone ? 'fa-solid fa-square-check' : 'fa-regular fa-square';
+  var itemClass = 'rf-today-item' + (isDone ? ' is-done' : '') + (isFocusing ? ' is-focusing' : '');
+
+  var html = '<div class="' + itemClass + '" data-line-index="' + task.lineIndex + '" data-index="' + index + '" data-content="' + esc(parsed.content) + '">';
+
+  // Checkbox
+  html += '<span class="rf-plan-cb ' + cbClass + '" data-action="togglePlan" data-line-index="' + task.lineIndex + '">';
+  html += '<i class="' + cbIcon + '"></i>';
+  html += '</span>';
+
+  // Content
+  html += '<div class="rf-today-item-body">';
+  html += '<span class="rf-plan-content">' + contentHTML + '</span>';
+
+  // Time info: estimated vs actual
+  if (estimateMin > 0 || actualMin > 0) {
+    html += '<div class="rf-today-time-info">';
+    if (estimateMin > 0) {
+      html += '<span class="rf-time-est"><i class="fa-regular fa-clock"></i> ' + esc(formatMinutes(estimateMin)) + '</span>';
     }
+    if (actualMin > 0) {
+      var overUnder = estimateMin > 0 ? (actualMin <= estimateMin ? ' on-track' : ' over') : '';
+      html += '<span class="rf-time-actual' + overUnder + '"><i class="fa-solid fa-stopwatch"></i> ' + esc(formatMinutes(actualMin)) + '</span>';
+    }
+    if (isFocusing) {
+      html += '<span class="rf-time-live" data-timer-start="' + timerState.startTime + '"><i class="fa-solid fa-circle rf-pulse"></i> focusing</span>';
+    }
+    html += '</div>';
+  } else if (isFocusing) {
+    html += '<div class="rf-today-time-info">';
+    html += '<span class="rf-time-live" data-timer-start="' + timerState.startTime + '"><i class="fa-solid fa-circle rf-pulse"></i> focusing</span>';
+    html += '</div>';
   }
-  var totalStr = '';
-  if (totalMinutes > 0) {
-    var hrs = Math.floor(totalMinutes / 60);
-    var mins = totalMinutes % 60;
-    totalStr = hrs > 0 ? (hrs + 'h' + (mins > 0 ? ' ' + mins + 'm' : '')) : (mins + 'm');
+
+  html += '</div>'; // body
+
+  // Action buttons (only for incomplete tasks)
+  if (!isDone) {
+    html += '<div class="rf-today-item-actions">';
+    if (!isFocusing) {
+      html += '<button class="rf-today-act" data-action="startFocusFromToday" data-content="' + esc(parsed.content) + '" title="Focus"><i class="fa-solid fa-crosshairs"></i></button>';
+    } else {
+      html += '<button class="rf-today-act focusing" data-action="stopFocusFromToday" title="Stop Focus"><i class="fa-solid fa-stop"></i></button>';
+    }
+    if (index > 0) {
+      html += '<button class="rf-today-act" data-action="movePlanUp" data-line-index="' + task.lineIndex + '" title="Move up"><i class="fa-solid fa-chevron-up"></i></button>';
+    }
+    if (index < totalCount - 1) {
+      html += '<button class="rf-today-act" data-action="movePlanDown" data-line-index="' + task.lineIndex + '" title="Move down"><i class="fa-solid fa-chevron-down"></i></button>';
+    }
+    html += '</div>';
   }
+
+  html += '</div>';
+  return html;
+}
+
+function buildTodayTab(planTasks, focusMap, timerState) {
+  var remaining = planTasks.filter(function(t) { return !t.isComplete; });
+
+  // Calculate total estimated and actual time
+  var totalEstMin = 0;
+  var totalActMin = 0;
+  for (var t = 0; t < remaining.length; t++) {
+    var parsed = extractTimeEstimate(remaining[t].content);
+    totalEstMin += parseEstimateMinutes(parsed.estimate);
+    totalActMin += (focusMap[parsed.content] || 0);
+  }
+  var totalEstStr = formatMinutes(totalEstMin);
+  var totalActStr = formatMinutes(totalActMin);
 
   var html = '<div class="rf-today-overview">';
   html += '<div class="rf-panel-header">';
   html += '<h2 class="rf-panel-title">Today\'s Plan</h2>';
   html += '<span class="rf-plan-count">' + remaining.length + ' remaining';
-  if (totalStr) html += ' &middot; ' + esc(totalStr);
+  if (totalEstStr) html += ' &middot; ' + esc(totalEstStr);
+  if (totalActStr) html += ' focused';
   html += '</span>';
   html += '</div>';
   html += '<div class="rf-plan-list" id="planList">';
   if (planTasks.length === 0) {
     html += '<div class="rf-empty">No tasks planned yet. Go to the <strong>Plan</strong> tab to add tasks.</div>';
   } else {
+    var incompleteCount = remaining.length;
     for (var i = 0; i < planTasks.length; i++) {
-      html += buildPlanItem(planTasks[i], i, false);
+      html += buildTodayPlanItem(planTasks[i], i, planTasks.length, focusMap, timerState);
     }
   }
   html += '</div>';
@@ -1198,7 +1308,7 @@ function buildDashboardHTML(tab, data) {
 
   switch (tab) {
     case 'today':
-      html += buildTodayTab(data.planTasks);
+      html += buildTodayTab(data.planTasks, data.focusMap || {}, data.timerState || {});
       break;
     case 'focus':
       html += buildFocusTab(data.planTasks, data.timerState);
@@ -1429,6 +1539,58 @@ function getInlineCSS() {
 '.rf-today-overview .rf-panel-header { padding: 16px 0 12px; border-bottom: 1px solid var(--rf-border); }\n' +
 '.rf-today-overview .rf-plan-list { padding: 8px 0; }\n' +
 
+/* ---- Today Plan Items ---- */
+'.rf-today-item {\n' +
+'  display: flex; align-items: flex-start; gap: 8px;\n' +
+'  padding: 10px 8px; border-radius: var(--rf-radius-sm);\n' +
+'  transition: background 0.1s;\n' +
+'}\n' +
+'.rf-today-item:hover { background: var(--rf-border); }\n' +
+'.rf-today-item.is-done { opacity: 0.5; }\n' +
+'.rf-today-item.is-done .rf-plan-content { text-decoration: line-through; }\n' +
+'.rf-today-item.is-focusing {\n' +
+'  background: color-mix(in srgb, var(--rf-accent) 8%, transparent);\n' +
+'  border-left: 3px solid var(--rf-accent); padding-left: 5px;\n' +
+'}\n' +
+'.rf-today-item-body { flex: 1; min-width: 0; }\n' +
+'.rf-today-time-info {\n' +
+'  display: flex; gap: 10px; margin-top: 4px; align-items: center;\n' +
+'}\n' +
+'.rf-time-est {\n' +
+'  font-size: 11px; color: var(--rf-text-muted);\n' +
+'}\n' +
+'.rf-time-actual {\n' +
+'  font-size: 11px; color: var(--rf-text-muted);\n' +
+'}\n' +
+'.rf-time-actual.on-track { color: var(--rf-green); }\n' +
+'.rf-time-actual.over { color: var(--rf-red); }\n' +
+'.rf-time-live {\n' +
+'  font-size: 11px; color: var(--rf-accent); font-weight: 600;\n' +
+'}\n' +
+'.rf-pulse {\n' +
+'  font-size: 6px; vertical-align: middle; margin-right: 3px;\n' +
+'  animation: rf-pulse-anim 1.5s ease-in-out infinite;\n' +
+'}\n' +
+'@keyframes rf-pulse-anim {\n' +
+'  0%, 100% { opacity: 1; }\n' +
+'  50% { opacity: 0.3; }\n' +
+'}\n' +
+'.rf-today-item-actions {\n' +
+'  display: flex; gap: 2px; flex-shrink: 0; opacity: 0;\n' +
+'  transition: opacity 0.15s;\n' +
+'}\n' +
+'.rf-today-item:hover .rf-today-item-actions { opacity: 1; }\n' +
+'.rf-today-item.is-focusing .rf-today-item-actions { opacity: 1; }\n' +
+'.rf-today-act {\n' +
+'  width: 26px; height: 26px; border-radius: var(--rf-radius-sm);\n' +
+'  border: none; background: transparent; color: var(--rf-text-faint);\n' +
+'  cursor: pointer; display: flex; align-items: center; justify-content: center;\n' +
+'  font-size: 11px; transition: all 0.15s;\n' +
+'}\n' +
+'.rf-today-act:hover { background: var(--rf-border); color: var(--rf-text); }\n' +
+'.rf-today-act.focusing { color: var(--rf-accent); }\n' +
+'.rf-today-act.focusing:hover { background: var(--rf-red-soft); color: var(--rf-red); }\n' +
+
 /* ---- Sources Panel ---- */
 '.rf-sources-panel {\n' +
 '  flex: 1; display: flex; flex-direction: column; min-width: 0;\n' +
@@ -1651,12 +1813,17 @@ async function showReflect(tab) {
       dailyTasks: [],
       scheduledToday: [],
       scheduledWeek: [],
+      calendarEvents: [],
       hasClickUp: Boolean(config.clickupApiToken && config.clickupTeamId),
       timerState: config.timerState,
+      focusMap: {},
     };
 
     if (note) {
       data.planTasks = getPlanTasks(note);
+      if (activeTab === 'today' || activeTab === 'focus') {
+        data.focusMap = getFocusedTimeMap(note);
+      }
       if (activeTab === 'plan') {
         var cached = await getCachedTasks(note, config);
         data.calendarEvents = cached.calendarEvents;
@@ -1794,10 +1961,50 @@ async function onMessageFromHTMLView(actionType, data) {
         }
         break;
 
+      case 'startFocusFromToday':
+        if (note && msg.taskContent) {
+          startFocusSession(note, msg.taskContent);
+          await showReflect('today');
+        }
+        break;
+
+      case 'stopFocusFromToday':
+        if (note) {
+          stopFocusSession(note, '');
+          invalidateTaskCache();
+          await showReflect('today');
+        }
+        break;
+
       case 'stopFocus':
         if (note) {
           stopFocusSession(note, msg.notes || '');
           await showReflect('focus');
+        }
+        break;
+
+      case 'movePlanUp':
+      case 'movePlanDown':
+        if (note && msg.lineIndex !== undefined) {
+          var planItems = getPlanTasks(note);
+          var targetIdx = parseInt(msg.lineIndex, 10);
+          var currentPos = -1;
+          for (var mi = 0; mi < planItems.length; mi++) {
+            if (planItems[mi].lineIndex === targetIdx) { currentPos = mi; break; }
+          }
+          if (currentPos >= 0) {
+            var swapPos = actionType === 'movePlanUp' ? currentPos - 1 : currentPos + 1;
+            if (swapPos >= 0 && swapPos < planItems.length) {
+              // Build new order with the two items swapped
+              var newOrder = planItems.map(function(p) { return p.lineIndex; });
+              var tmp = newOrder[currentPos];
+              newOrder[currentPos] = newOrder[swapPos];
+              newOrder[swapPos] = tmp;
+              reorderPlanTasks(note, newOrder);
+              invalidateTaskCache();
+              await showReflect('today');
+            }
+          }
         }
         break;
 
