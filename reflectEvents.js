@@ -563,15 +563,45 @@ function stopTimerUI() {
   if (el) el.textContent = '00:00';
 }
 
+function fmtMins(m) {
+  if (m <= 0) return '0m';
+  var h = Math.floor(m / 60);
+  var r = Math.round(m % 60);
+  if (h > 0) return h + 'h' + (r > 0 ? ' ' + r + 'm' : '');
+  return r + 'm';
+}
+
 function updateTimerDisplay() {
   if (!timerStartTime) return;
   var elapsed = Date.now() - timerStartTime;
   var totalSec = Math.floor(elapsed / 1000);
+  var sessionMin = totalSec / 60;
   var mins = Math.floor(totalSec / 60);
   var secs = totalSec % 60;
   var display = String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0');
   var el = document.getElementById('focusTimer');
   if (el) el.textContent = display;
+
+  // Update focus stats if present
+  var card = document.querySelector('.rf-focus-card');
+  if (!card) return;
+  var trackedMin = parseFloat(card.dataset.trackedMin || '0');
+  var estimateMin = parseFloat(card.dataset.estimateMin || '0');
+
+  var statSession = document.getElementById('statSession');
+  if (statSession) statSession.textContent = fmtMins(sessionMin);
+
+  var statTotal = document.getElementById('statTotal');
+  if (statTotal) statTotal.textContent = fmtMins(trackedMin + sessionMin);
+
+  var statRemaining = document.getElementById('statRemaining');
+  if (statRemaining) {
+    var remain = estimateMin - trackedMin - sessionMin;
+    statRemaining.textContent = remain > 0 ? fmtMins(remain) : '0m';
+    if (remain <= 0) {
+      statRemaining.className = 'rf-focus-stat-value over';
+    }
+  }
 }
 
 function handleStartFocus(el) {

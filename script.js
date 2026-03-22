@@ -1034,23 +1034,19 @@ function buildTodayPlanItem(task, index, totalCount, focusMap, timerState) {
   html += '<div class="rf-today-item-body">';
   html += '<span class="rf-plan-content">' + contentHTML + '</span>';
 
-  // Time info: estimated vs actual
-  if (estimateMin > 0 || actualMin > 0) {
+  // Time info: focusing → tracked → estimated
+  if (isFocusing || actualMin > 0 || estimateMin > 0) {
     html += '<div class="rf-today-time-info">';
-    if (estimateMin > 0) {
-      html += '<span class="rf-time-est"><i class="fa-regular fa-clock"></i> ' + esc(formatMinutes(estimateMin)) + '</span>';
-    }
-    if (actualMin > 0) {
-      var overUnder = estimateMin > 0 ? (actualMin <= estimateMin ? ' on-track' : ' over') : '';
-      html += '<span class="rf-time-actual' + overUnder + '"><i class="fa-solid fa-stopwatch"></i> ' + esc(formatMinutes(actualMin)) + '</span>';
-    }
     if (isFocusing) {
       html += '<span class="rf-time-live" data-timer-start="' + timerState.startTime + '"><i class="fa-solid fa-circle rf-pulse"></i> focusing</span>';
     }
-    html += '</div>';
-  } else if (isFocusing) {
-    html += '<div class="rf-today-time-info">';
-    html += '<span class="rf-time-live" data-timer-start="' + timerState.startTime + '"><i class="fa-solid fa-circle rf-pulse"></i> focusing</span>';
+    if (actualMin > 0) {
+      var overUnder = estimateMin > 0 ? (actualMin <= estimateMin ? ' on-track' : ' over') : '';
+      html += '<span class="rf-time-actual' + overUnder + '"><i class="fa-solid fa-stopwatch"></i> ' + esc(formatMinutes(actualMin)) + ' tracked</span>';
+    }
+    if (estimateMin > 0) {
+      html += '<span class="rf-time-est"><i class="fa-regular fa-clock"></i> ' + esc(formatMinutes(estimateMin)) + ' est</span>';
+    }
     html += '</div>';
   }
 
@@ -1240,7 +1236,7 @@ function buildPlanTab(data) {
   return html;
 }
 
-function buildFocusTab(planTasks, timerState) {
+function buildFocusTab(planTasks, timerState, focusMap) {
   var html = '<div class="rf-focus">';
   var isTimerActive = timerState.startTime && timerState.taskContent;
 
@@ -1285,11 +1281,43 @@ function buildFocusTab(planTasks, timerState) {
   var displayContent = isTimerActive ? currentTaskContent : extractTimeEstimate(currentTask.content).content;
   var startTimeAttr = isTimerActive ? ' data-timer-start="' + timerState.startTime + '"' : '';
 
-  html += '<div class="rf-focus-card"' + startTimeAttr + '>';
+  // Time data for this task
+  var parsedTask = extractTimeEstimate(currentTask.content);
+  var estimateMin = parseEstimateMinutes(parsedTask.estimate);
+  var trackedMin = focusMap[displayContent] || 0;
+
+  // Store tracked/estimate as data attrs for live JS updates
+  var dataAttrs = startTimeAttr;
+  dataAttrs += ' data-tracked-min="' + trackedMin + '"';
+  dataAttrs += ' data-estimate-min="' + estimateMin + '"';
+
+  html += '<div class="rf-focus-card"' + dataAttrs + '>';
   html += '<div class="rf-focus-label">' + (isTimerActive ? 'Currently focusing on' : 'Next up') + '</div>';
   html += '<div class="rf-focus-task">' + renderTaskContent(displayContent) + '</div>';
 
   html += '<div class="rf-focus-timer" id="focusTimer">' + (isTimerActive ? '--:--' : '00:00') + '</div>';
+
+  // Time breakdown stats
+  html += '<div class="rf-focus-stats" id="focusStats">';
+  if (isTimerActive) {
+    html += '<div class="rf-focus-stat"><span class="rf-focus-stat-label">This session</span><span class="rf-focus-stat-value" id="statSession">--:--</span></div>';
+    html += '<div class="rf-focus-stat"><span class="rf-focus-stat-label">Total tracked</span><span class="rf-focus-stat-value" id="statTotal">' + esc(formatMinutes(trackedMin)) + '</span></div>';
+    if (estimateMin > 0) {
+      var remainMin = Math.max(0, estimateMin - trackedMin);
+      html += '<div class="rf-focus-stat"><span class="rf-focus-stat-label">Remaining</span><span class="rf-focus-stat-value" id="statRemaining">' + esc(formatMinutes(remainMin)) + '</span></div>';
+      html += '<div class="rf-focus-stat"><span class="rf-focus-stat-label">Estimate</span><span class="rf-focus-stat-value">' + esc(formatMinutes(estimateMin)) + '</span></div>';
+    }
+  } else {
+    if (trackedMin > 0) {
+      html += '<div class="rf-focus-stat"><span class="rf-focus-stat-label">Already tracked</span><span class="rf-focus-stat-value">' + esc(formatMinutes(trackedMin)) + '</span></div>';
+    }
+    if (estimateMin > 0) {
+      var remainIdle = Math.max(0, estimateMin - trackedMin);
+      html += '<div class="rf-focus-stat"><span class="rf-focus-stat-label">Remaining</span><span class="rf-focus-stat-value">' + esc(formatMinutes(remainIdle)) + '</span></div>';
+      html += '<div class="rf-focus-stat"><span class="rf-focus-stat-label">Estimate</span><span class="rf-focus-stat-value">' + esc(formatMinutes(estimateMin)) + '</span></div>';
+    }
+  }
+  html += '</div>';
 
   html += '<div class="rf-focus-controls">';
   if (isTimerActive) {
@@ -1329,7 +1357,7 @@ function buildDashboardHTML(tab, data) {
       html += buildTodayTab(data.planTasks, data.focusMap || {}, data.timerState || {});
       break;
     case 'focus':
-      html += buildFocusTab(data.planTasks, data.timerState);
+      html += buildFocusTab(data.planTasks, data.timerState, data.focusMap || {});
       break;
     case 'plan':
       html += buildPlanTab(data);
@@ -1724,6 +1752,21 @@ function getInlineCSS() {
 '  font-family: inherit; font-size: 13px; resize: vertical;\n' +
 '}\n' +
 '.rf-focus-notes::placeholder { color: var(--rf-text-faint); }\n' +
+'.rf-focus-stats {\n' +
+'  display: flex; gap: 20px; justify-content: center; flex-wrap: wrap;\n' +
+'}\n' +
+'.rf-focus-stat {\n' +
+'  display: flex; flex-direction: column; align-items: center; gap: 2px;\n' +
+'}\n' +
+'.rf-focus-stat-label {\n' +
+'  font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px;\n' +
+'  color: var(--rf-text-faint); font-weight: 600;\n' +
+'}\n' +
+'.rf-focus-stat-value {\n' +
+'  font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums;\n' +
+'  color: var(--rf-text);\n' +
+'}\n' +
+'.rf-focus-stat-value.over { color: var(--rf-red); }\n' +
 '.rf-focus-complete {\n' +
 '  padding: 10px 24px; border-radius: var(--rf-radius-sm);\n' +
 '  border: 1px solid var(--rf-border); background: transparent;\n' +
