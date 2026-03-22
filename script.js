@@ -463,14 +463,23 @@ async function getTodayCalendarEvents() {
       var hh = String(startDate.getHours()).padStart(2, '0');
       var mm = String(startDate.getMinutes()).padStart(2, '0');
 
+      // Build the NotePlan calendar event deeplink
+      var dateTimeStr = getDateStr(startDate) + ' ' + hh + ':' + mm;
+      var eventId = ev.id || '';
+      var evColor = ev.color || '#5A9FD4';
+      var evTitle = ev.title || 'Event';
+      var calendarLink = '![📅](' + dateTimeStr + ':::' + eventId + ':::NA:::' + evTitle + ':::' + evColor + ')';
+
       result.push({
-        content: ev.title || 'Event',
+        content: evTitle,
         type: 'calendar',
         calendarTitle: ev.calendar || '',
-        color: ev.color || '#5A9FD4',
+        color: evColor,
         startTime: hh + ':' + mm,
         durationMin: durationMin,
         durationStr: durStr,
+        eventId: eventId,
+        calendarLink: calendarLink,
         source: 'calendar',
       });
     }
@@ -727,6 +736,15 @@ function renderPriorityBadge(level) {
 function renderMarkdown(str) {
   if (!str) return '';
   var s = esc(str);
+
+  // Calendar event deeplink: ![📅](DATE TIME:::ID:::NA:::TITLE:::COLOR)
+  // The esc() would have turned it into: ![](...) with &amp; etc, but since
+  // the content doesn't have special HTML chars in this pattern, just match escaped version
+  s = s.replace(/!\[.*?\]\((\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}):::([^:]*?):::NA:::([^:]*?):::([^)]*?)\)/g,
+    function(match, date, time, eventId, title, color) {
+      return '<span class="rf-cal-badge" style="--cal-color: ' + color + '"><i class="fa-regular fa-calendar"></i> ' + title + ' <span class="rf-cal-time">' + time + '</span></span>';
+    });
+
   // Bold
   s = s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
   // Italic
@@ -869,16 +887,16 @@ function buildSourceTask(task, planContentSet) {
 }
 
 function buildCalendarSourceTask(event, planContentSet) {
-  var isInPlan = planContentSet && planContentSet[event.content];
+  // Check if this event's title or calendarLink is already in plan
+  var isInPlan = planContentSet && (planContentSet[event.content] || planContentSet[event.calendarLink]);
   var taskClass = 'rf-source-task' + (isInPlan ? ' in-plan' : '');
-  var durAttr = ' data-duration="' + esc(event.durationStr) + '"';
 
-  var html = '<div class="' + taskClass + '" data-content="' + esc(event.content) + '"' + durAttr + '>';
+  var html = '<div class="' + taskClass + '" data-content="' + esc(event.content) + '" data-duration="' + esc(event.durationStr) + '" data-calendar-link="' + esc(event.calendarLink) + '">';
 
   if (isInPlan) {
     html += '<span class="rf-source-added"><i class="fa-solid fa-check"></i></span>';
   } else {
-    html += '<button class="rf-source-add" data-action="addToPlanWithDuration" data-content="' + esc(event.content) + '" data-duration="' + esc(event.durationStr) + '" title="Add to plan (S)">';
+    html += '<button class="rf-source-add" data-action="addCalendarToPlan" data-content="' + esc(event.content) + '" data-duration="' + esc(event.durationStr) + '" data-calendar-link="' + esc(event.calendarLink) + '" title="Add to plan (S)">';
     html += '<i class="fa-solid fa-plus"></i>';
     html += '</button>';
   }
@@ -951,6 +969,9 @@ function buildPlanTab(data) {
     var parsed = extractTimeEstimate(planTasks[p].content);
     planContentSet[parsed.content] = true;
     planContentSet[planTasks[p].content] = true;
+    // Also extract calendar deeplink if present
+    var calMatch = parsed.content.match(/!\[.*?\]\([^)]+\)/);
+    if (calMatch) planContentSet[calMatch[0]] = true;
   }
 
   // Calculate total estimated time for remaining tasks
@@ -1515,6 +1536,17 @@ function getInlineCSS() {
 '.rf-md-highlight { background: var(--rf-yellow); color: #000; padding: 0 2px; border-radius: 2px; }\n' +
 '.rf-tag { color: var(--rf-orange); font-weight: 600; }\n' +
 '.rf-mention { color: var(--rf-orange); font-weight: 600; }\n' +
+'.rf-cal-badge {\n' +
+'  display: inline-flex; align-items: center; gap: 5px;\n' +
+'  padding: 2px 8px; border-radius: 4px;\n' +
+'  background: color-mix(in srgb, var(--cal-color, #5A9FD4) 15%, transparent);\n' +
+'  border-left: 3px solid var(--cal-color, #5A9FD4);\n' +
+'  color: var(--rf-text); font-weight: 500;\n' +
+'}\n' +
+'.rf-cal-badge i { color: var(--cal-color, #5A9FD4); font-size: 12px; }\n' +
+'.rf-cal-time {\n' +
+'  font-size: 11px; color: var(--rf-text-muted); font-weight: 400;\n' +
+'}\n' +
 
 /* ---- Toast ---- */
 '.rf-toast {\n' +
@@ -1630,6 +1662,29 @@ async function onMessageFromHTMLView(actionType, data) {
     switch (actionType) {
       case 'switchTab':
         await showReflect(msg.tab);
+        break;
+
+      case 'addCalendarToPlan':
+        if (note && msg.calendarLink) {
+          var calPlanContent = msg.calendarLink;
+          if (msg.durationStr) {
+            calPlanContent += ' *- ' + msg.durationStr + '*';
+          }
+          addToPlan(note, calPlanContent);
+          invalidateTaskCache();
+          var calUpdatedPlan = getPlanTasks(note);
+          var calNewTask = calUpdatedPlan[calUpdatedPlan.length - 1];
+          var calRemaining = calUpdatedPlan.filter(function(t) { return !t.isComplete; }).length;
+          await sendToHTMLWindow(WINDOW_ID, 'TASK_ADDED_TO_PLAN', {
+            content: calPlanContent,
+            contentHTML: renderTaskContent(calPlanContent),
+            lineIndex: calNewTask ? calNewTask.lineIndex : -1,
+            originalContent: msg.content,
+            remaining: calRemaining,
+            durationStr: msg.durationStr || '',
+            isCalendarEvent: true,
+          });
+        }
         break;
 
       case 'addToPlan':

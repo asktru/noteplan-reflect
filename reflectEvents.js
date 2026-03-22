@@ -359,6 +359,23 @@ function renderClickUpTasks(tasks) {
 // ADD TO PLAN
 // ============================================
 
+function handleAddCalendarToPlan(el) {
+  var content = el.dataset.content || '';
+  var duration = el.dataset.duration || '';
+  var calendarLink = el.dataset.calendarLink || '';
+  if (!calendarLink) {
+    var task = el.closest('.rf-source-task');
+    if (task) {
+      content = task.dataset.content || '';
+      duration = task.dataset.duration || '';
+      calendarLink = task.dataset.calendarLink || '';
+    }
+  }
+  if (calendarLink) {
+    sendMessageToPlugin('addCalendarToPlan', JSON.stringify({ content: content, durationStr: duration, calendarLink: calendarLink }));
+  }
+}
+
 function handleAddToPlanWithDuration(el) {
   var content = el.dataset.content || '';
   var duration = el.dataset.duration || '';
@@ -404,9 +421,17 @@ function handleKeyboardShortcut(e) {
     var content = hoveredTask.dataset.content;
     var clickupId = hoveredTask.dataset.clickupId || '';
     var duration = hoveredTask.dataset.duration || '';
+    var calendarLink = hoveredTask.dataset.calendarLink || '';
     if (content) {
-      var msgType = duration ? 'addToPlanWithDuration' : 'addToPlan';
-      sendMessageToPlugin(msgType, JSON.stringify({ content: content, clickupId: clickupId, durationStr: duration }));
+      if (calendarLink) {
+        sendMessageToPlugin('addCalendarToPlan', JSON.stringify({ content: content, durationStr: duration, calendarLink: calendarLink }));
+      } else if (clickupId) {
+        sendMessageToPlugin('addToPlan', JSON.stringify({ content: content, clickupId: clickupId }));
+      } else if (duration) {
+        sendMessageToPlugin('addToPlanWithDuration', JSON.stringify({ content: content, durationStr: duration }));
+      } else {
+        sendMessageToPlugin('addToPlan', JSON.stringify({ content: content }));
+      }
       showToast('Added to plan');
     }
   }
@@ -623,6 +648,9 @@ document.addEventListener('DOMContentLoaded', function() {
         break;
       case 'addToPlanWithDuration':
         handleAddToPlanWithDuration(target);
+        break;
+      case 'addCalendarToPlan':
+        handleAddCalendarToPlan(target);
         break;
       case 'showTimePicker':
         showTimePicker(target);
