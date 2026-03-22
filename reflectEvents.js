@@ -33,6 +33,9 @@ function onMessageFromPlugin(type, data) {
     case 'SHOW_TOAST':
       showToast(data.message);
       break;
+    case 'HIGHLIGHTS_LOADED':
+      handleHighlightsLoaded(data);
+      break;
     case 'FULL_REFRESH':
       window.location.reload();
       break;
@@ -735,4 +738,110 @@ document.addEventListener('DOMContentLoaded', function() {
       handleSourceTabClick(sourceTab);
     }
   });
+
+  // Infinite scroll for Highlights tab
+  var highlightsLoading = false;
+  var mainEl = document.querySelector('.rf-main');
+  if (mainEl) {
+    mainEl.addEventListener('scroll', function() {
+      if (highlightsLoading) return;
+      var loadMore = document.getElementById('highlightsLoadMore');
+      if (!loadMore || loadMore.classList.contains('exhausted')) return;
+
+      var rect = loadMore.getBoundingClientRect();
+      var mainRect = mainEl.getBoundingClientRect();
+      // Trigger when sentinel is within 200px of the bottom of the visible area
+      if (rect.top < mainRect.bottom + 200) {
+        highlightsLoading = true;
+        loadMore.innerHTML = '<span class="rf-text-muted">Loading...</span>';
+        var offset = parseInt(loadMore.dataset.offset) || 0;
+        sendMessageToPlugin('loadMoreHighlights', { offset: offset });
+      }
+    });
+  }
+
+  // Expose highlightsLoading reset for the handler
+  window._hlLoading = function(v) { highlightsLoading = v; };
 });
+
+// ============================================
+// HIGHLIGHTS INFINITE SCROLL
+// ============================================
+
+function buildHighlightEntryDOM(entry) {
+  var card = document.createElement('div');
+  card.className = 'rf-hl-entry';
+  card.dataset.date = entry.date;
+
+  var dateEl = document.createElement('div');
+  dateEl.className = 'rf-hl-date';
+  dateEl.textContent = entry.dateFormatted;
+  card.appendChild(dateEl);
+
+  var sections = [
+    { items: entry.workedOn, icon: 'fa-mug-hot', label: 'Worked on', muted: false, highlight: false },
+    { items: entry.didntGetTo, icon: 'fa-circle-pause', label: "Didn't get to", muted: true, highlight: false },
+    { items: entry.highlights, icon: 'fa-pen-fancy', label: 'Highlights', muted: false, highlight: true },
+  ];
+
+  for (var s = 0; s < sections.length; s++) {
+    var sec = sections[s];
+    if (sec.items.length === 0) continue;
+
+    var secDiv = document.createElement('div');
+    secDiv.className = 'rf-hl-section';
+
+    var labelDiv = document.createElement('div');
+    labelDiv.className = 'rf-hl-section-label';
+    var icon = document.createElement('i');
+    icon.className = 'fa-solid ' + sec.icon;
+    labelDiv.appendChild(icon);
+    labelDiv.appendChild(document.createTextNode(' ' + sec.label));
+    secDiv.appendChild(labelDiv);
+
+    var ul = document.createElement('ul');
+    ul.className = 'rf-hl-list' + (sec.highlight ? ' rf-hl-highlights' : '');
+    for (var li = 0; li < sec.items.length; li++) {
+      var item = document.createElement('li');
+      if (sec.muted) item.className = 'rf-text-muted';
+      // Use textContent by default, but items are pre-rendered HTML from the plugin
+      // We need to set the text safely — use a span with textContent
+      var span = document.createElement('span');
+      span.textContent = sec.items[li];
+      item.appendChild(span);
+      ul.appendChild(item);
+    }
+    secDiv.appendChild(ul);
+    card.appendChild(secDiv);
+  }
+
+  return card;
+}
+
+function handleHighlightsLoaded(data) {
+  var feed = document.getElementById('highlightsFeed');
+  var loadMore = document.getElementById('highlightsLoadMore');
+  if (!feed || !loadMore) return;
+
+  if (data.count === 0) {
+    loadMore.classList.add('exhausted');
+    var exhaustedSpan = document.createElement('span');
+    exhaustedSpan.className = 'rf-text-muted';
+    exhaustedSpan.textContent = 'No more highlights';
+    loadMore.textContent = '';
+    loadMore.appendChild(exhaustedSpan);
+  } else {
+    var entries = data.entries || [];
+    for (var i = 0; i < entries.length; i++) {
+      feed.insertBefore(buildHighlightEntryDOM(entries[i]), loadMore);
+    }
+    loadMore.dataset.offset = data.newOffset;
+    var moreSpan = document.createElement('span');
+    moreSpan.className = 'rf-text-muted';
+    moreSpan.textContent = 'Scroll for more...';
+    loadMore.textContent = '';
+    loadMore.appendChild(moreSpan);
+  }
+
+  if (window._hlLoading) window._hlLoading(false);
+}

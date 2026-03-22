@@ -1420,6 +1420,108 @@ function getExistingHighlightsText(note) {
 }
 
 /**
+ * Scan calendar notes for ## Highlights sections, returning entries sorted by date descending.
+ * Each entry: { date: 'YYYY-MM-DD', workedOn: [...], didntGetTo: [...], highlights: [...] }
+ * Only returns entries that actually have Highlights content.
+ */
+function getHighlightsHistory(limit, offset) {
+  var calNotes = DataStore.calendarNotes;
+  if (!calNotes) return [];
+
+  // Collect daily notes only (filename matches YYYYMMDD.md or YYYYMMDD.txt)
+  var dailyNotes = [];
+  for (var i = 0; i < calNotes.length; i++) {
+    var fn = calNotes[i].filename || '';
+    if (/^\d{8}\.(md|txt)$/.test(fn)) {
+      dailyNotes.push(calNotes[i]);
+    }
+  }
+
+  // Sort by filename descending (most recent first)
+  dailyNotes.sort(function(a, b) {
+    return (b.filename || '').localeCompare(a.filename || '');
+  });
+
+  var results = [];
+  var skipped = 0;
+
+  for (var n = 0; n < dailyNotes.length && results.length < limit; n++) {
+    var note = dailyNotes[n];
+    var paras = note.paragraphs;
+    if (!paras || paras.length === 0) continue;
+
+    // Find ## Highlights heading
+    var highlightsStart = -1;
+    for (var p = 0; p < paras.length; p++) {
+      if (paras[p].type === 'title' && paras[p].headingLevel === 2 &&
+          paras[p].content && paras[p].content.trim() === 'Highlights') {
+        highlightsStart = p + 1;
+        break;
+      }
+    }
+    if (highlightsStart < 0) continue;
+
+    // Find end of ## Highlights (next h1 or h2)
+    var highlightsEnd = paras.length;
+    for (var q = highlightsStart; q < paras.length; q++) {
+      if (paras[q].type === 'title' && paras[q].headingLevel <= 2) {
+        highlightsEnd = q;
+        break;
+      }
+    }
+
+    // Parse subsections: ### Worked on, ### Didn't get to, ### Highlights
+    var entry = { date: '', workedOn: [], didntGetTo: [], highlights: [] };
+
+    // Extract date from filename (YYYYMMDD -> YYYY-MM-DD)
+    var fnBase = (note.filename || '').replace(/\.\w+$/, '');
+    if (fnBase.length === 8) {
+      entry.date = fnBase.substring(0, 4) + '-' + fnBase.substring(4, 6) + '-' + fnBase.substring(6, 8);
+    }
+
+    var currentSection = null;
+    for (var r = highlightsStart; r < highlightsEnd; r++) {
+      var para = paras[r];
+      if (para.type === 'title' && para.headingLevel === 3) {
+        var heading = (para.content || '').trim();
+        if (heading === 'Worked on') currentSection = 'workedOn';
+        else if (heading === "Didn't get to") currentSection = 'didntGetTo';
+        else if (heading === 'Highlights') currentSection = 'highlights';
+        else currentSection = null;
+        continue;
+      }
+      if (para.type === 'empty') continue;
+      if (currentSection && (para.type === 'list' || para.type === 'text' || para.type === 'quote')) {
+        var content = para.content || '';
+        if (content) entry[currentSection].push(content);
+      }
+    }
+
+    // Only include entries that have any content
+    if (entry.workedOn.length === 0 && entry.didntGetTo.length === 0 && entry.highlights.length === 0) continue;
+
+    // Apply offset
+    if (skipped < offset) { skipped++; continue; }
+
+    results.push(entry);
+  }
+
+  return results;
+}
+
+/**
+ * Format a highlights entry date for display.
+ */
+function formatHighlightDate(dateStr) {
+  if (!dateStr) return '';
+  var days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  var months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  var parts = dateStr.split('-');
+  var d = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+  return days[d.getDay()] + ', ' + months[d.getMonth()] + ' ' + d.getDate() + ', ' + d.getFullYear();
+}
+
+/**
  * Save shutdown data to the daily note under ## Highlights.
  * Creates/overwrites the section with Worked on, Didn't get to, and Highlights.
  */
@@ -1557,6 +1659,64 @@ function buildShutdownTab(workedOn, didntGetTo, existingHighlights) {
   return html;
 }
 
+function buildHighlightEntryHTML(entry) {
+  var html = '<div class="rf-hl-entry" data-date="' + esc(entry.date) + '">';
+  html += '<div class="rf-hl-date">' + esc(formatHighlightDate(entry.date)) + '</div>';
+
+  if (entry.workedOn.length > 0) {
+    html += '<div class="rf-hl-section">';
+    html += '<div class="rf-hl-section-label"><i class="fa-solid fa-mug-hot"></i> Worked on</div>';
+    html += '<ul class="rf-hl-list">';
+    for (var w = 0; w < entry.workedOn.length; w++) {
+      html += '<li>' + renderTaskContent(entry.workedOn[w]) + '</li>';
+    }
+    html += '</ul></div>';
+  }
+
+  if (entry.didntGetTo.length > 0) {
+    html += '<div class="rf-hl-section">';
+    html += '<div class="rf-hl-section-label"><i class="fa-solid fa-circle-pause"></i> Didn\'t get to</div>';
+    html += '<ul class="rf-hl-list">';
+    for (var d = 0; d < entry.didntGetTo.length; d++) {
+      html += '<li class="rf-text-muted">' + renderTaskContent(entry.didntGetTo[d]) + '</li>';
+    }
+    html += '</ul></div>';
+  }
+
+  if (entry.highlights.length > 0) {
+    html += '<div class="rf-hl-section">';
+    html += '<div class="rf-hl-section-label"><i class="fa-solid fa-pen-fancy"></i> Highlights</div>';
+    html += '<ul class="rf-hl-list rf-hl-highlights">';
+    for (var h = 0; h < entry.highlights.length; h++) {
+      html += '<li>' + renderMarkdown(entry.highlights[h]) + '</li>';
+    }
+    html += '</ul></div>';
+  }
+
+  html += '</div>';
+  return html;
+}
+
+function buildHighlightsTab(entries) {
+  var html = '<div class="rf-highlights-feed" id="highlightsFeed">';
+  html += '<h2 class="rf-section-title"><i class="fa-solid fa-pen-fancy"></i> Daily Highlights</h2>';
+
+  if (entries.length === 0) {
+    html += '<div class="rf-empty">No highlights yet. Complete a Shutdown session to record your first highlights.</div>';
+  } else {
+    for (var i = 0; i < entries.length; i++) {
+      html += buildHighlightEntryHTML(entries[i]);
+    }
+    // Sentinel for infinite scroll
+    html += '<div id="highlightsLoadMore" class="rf-hl-load-more" data-offset="' + entries.length + '">';
+    html += '<span class="rf-text-muted">Scroll for more...</span>';
+    html += '</div>';
+  }
+
+  html += '</div>';
+  return html;
+}
+
 function buildPlaceholderTab(tabName) {
   var html = '<div class="rf-placeholder">';
   html += '<i class="fa-solid fa-wrench rf-placeholder-icon"></i>';
@@ -1587,7 +1747,7 @@ function buildDashboardHTML(tab, data) {
       html += buildShutdownTab(data.workedOn || [], data.didntGetTo || [], data.existingHighlights || '');
       break;
     case 'highlights':
-      html += buildPlaceholderTab('Highlights');
+      html += buildHighlightsTab(data.highlightsHistory || []);
       break;
     default:
       html += buildPlaceholderTab(tab);
@@ -2110,6 +2270,45 @@ function getInlineCSS() {
 '}\n' +
 '.rf-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }\n' +
 
+/* ---- Highlights Feed ---- */
+'.rf-highlights-feed {\n' +
+'  max-width: 700px; margin: 0 auto; padding: 20px;\n' +
+'}\n' +
+'.rf-hl-entry {\n' +
+'  margin-bottom: 24px; padding: 16px 20px;\n' +
+'  background: var(--rf-bg-elevated); border-radius: var(--rf-radius-sm);\n' +
+'  border: 1px solid var(--rf-border);\n' +
+'}\n' +
+'.rf-hl-date {\n' +
+'  font-size: 15px; font-weight: 700; color: var(--rf-accent);\n' +
+'  margin-bottom: 12px; padding-bottom: 8px;\n' +
+'  border-bottom: 1px solid var(--rf-border);\n' +
+'}\n' +
+'.rf-hl-section { margin-bottom: 12px; }\n' +
+'.rf-hl-section:last-child { margin-bottom: 0; }\n' +
+'.rf-hl-section-label {\n' +
+'  font-size: 11px; font-weight: 700; color: var(--rf-text-muted);\n' +
+'  text-transform: uppercase; letter-spacing: 0.05em;\n' +
+'  margin-bottom: 6px; display: flex; align-items: center; gap: 6px;\n' +
+'}\n' +
+'.rf-hl-list {\n' +
+'  list-style: none; margin: 0; padding: 0;\n' +
+'}\n' +
+'.rf-hl-list li {\n' +
+'  font-size: 14px; line-height: 1.6; padding: 2px 0 2px 16px;\n' +
+'  position: relative; color: var(--rf-text);\n' +
+'}\n' +
+'.rf-hl-list li::before {\n' +
+'  content: ""; position: absolute; left: 0; top: 10px;\n' +
+'  width: 5px; height: 5px; border-radius: 50%;\n' +
+'  background: var(--rf-text-faint);\n' +
+'}\n' +
+'.rf-hl-list.rf-hl-highlights li::before { background: var(--rf-accent); }\n' +
+'.rf-hl-load-more {\n' +
+'  text-align: center; padding: 16px; font-size: 13px;\n' +
+'}\n' +
+'.rf-hl-load-more.exhausted { display: none; }\n' +
+
 /* ---- Mobile ---- */
 '@media (max-width: 700px) {\n' +
 '  .rf-nav-toggle { display: flex; }\n' +
@@ -2176,6 +2375,9 @@ async function showReflect(tab) {
         data.scheduledWeek = cached.scheduledWeek;
       }
       // today and focus tabs only need planTasks (already loaded)
+    }
+    if (activeTab === 'highlights') {
+      data.highlightsHistory = getHighlightsHistory(5, 0);
     }
 
     var bodyContent = buildDashboardHTML(activeTab, data);
@@ -2379,6 +2581,28 @@ async function onMessageFromHTMLView(actionType, data) {
           saveShutdownData(note, workedOn, didntGetTo, msg.highlights || '');
           await sendToHTMLWindow(WINDOW_ID, 'SHOW_TOAST', { message: 'Shutdown saved' });
         }
+        break;
+
+      case 'loadMoreHighlights':
+        var moreOffset = parseInt(msg.offset) || 0;
+        var moreEntries = getHighlightsHistory(5, moreOffset);
+        // Send raw text content — DOM construction handles display
+        var renderedEntries = [];
+        for (var me = 0; me < moreEntries.length; me++) {
+          var entry = moreEntries[me];
+          renderedEntries.push({
+            date: entry.date,
+            dateFormatted: formatHighlightDate(entry.date),
+            workedOn: entry.workedOn,
+            didntGetTo: entry.didntGetTo,
+            highlights: entry.highlights,
+          });
+        }
+        await sendToHTMLWindow(WINDOW_ID, 'HIGHLIGHTS_LOADED', {
+          entries: renderedEntries,
+          count: moreEntries.length,
+          newOffset: moreOffset + moreEntries.length,
+        });
         break;
 
       case 'openNote':
