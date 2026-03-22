@@ -733,23 +733,62 @@ function renderPriorityBadge(level) {
   return '<span class="rf-pri ' + classes[level] + '">' + labels[level] + '</span>';
 }
 
+/**
+ * Parse calendar event deeplink from raw content.
+ * Format: ![📅](DATE TIME:::EVENT_ID:::NA:::TITLE:::COLOR)
+ * Returns { found: true, before, after, title, time, color } or { found: false }
+ */
+function parseCalendarLink(str) {
+  // Find the ![...](... ) pattern
+  var imgStart = str.indexOf('![');
+  if (imgStart === -1) return { found: false };
+  var bracketEnd = str.indexOf('](', imgStart);
+  if (bracketEnd === -1) return { found: false };
+  var parenStart = bracketEnd + 2;
+  var parenEnd = str.indexOf(')', parenStart);
+  if (parenEnd === -1) return { found: false };
+
+  var inner = str.substring(parenStart, parenEnd);
+  var parts = inner.split(':::');
+  if (parts.length < 5) return { found: false };
+
+  // parts[0] = "2026-03-22 10:15", parts[1] = eventId, parts[2] = "NA", parts[3] = title, parts[4] = color
+  var dateTime = parts[0].trim();
+  var timeMatch = dateTime.match(/(\d{2}:\d{2})/);
+  var time = timeMatch ? timeMatch[1] : '';
+  var title = parts[3] || '';
+  var color = parts[4] || '#5A9FD4';
+
+  return {
+    found: true,
+    before: str.substring(0, imgStart),
+    after: str.substring(parenEnd + 1),
+    title: title,
+    time: time,
+    color: color,
+  };
+}
+
 function renderMarkdown(str) {
   if (!str) return '';
 
-  // Calendar event deeplink: ![📅](DATE TIME:::ID:::NA:::TITLE:::COLOR)
-  // Process BEFORE esc() so we can match the raw syntax reliably
-  str = str.replace(/!\[[^\]]*\]\((\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}):::([^:]*):::NA:::([^:]*):::(#[A-Fa-f0-9]+)\)/g,
-    function(match, date, time, eventId, title, color) {
-      return '{{CAL_BADGE:' + color + ':' + title + ':' + time + '}}';
-    });
+  // Calendar event deeplink: process BEFORE esc()
+  var calParsed = parseCalendarLink(str);
+  var calBadgeHTML = '';
+  if (calParsed.found) {
+    calBadgeHTML = '<span class="rf-cal-badge" style="--cal-color: ' + esc(calParsed.color) + '">' +
+      '<i class="fa-regular fa-calendar"></i> ' + esc(calParsed.title) +
+      ' <span class="rf-cal-time">' + esc(calParsed.time) + '</span></span>';
+    // Replace the link with a placeholder, process the rest normally
+    str = calParsed.before + '\x00CALBADGE\x00' + calParsed.after;
+  }
 
   var s = esc(str);
 
-  // Restore calendar badges after escaping
-  s = s.replace(/\{\{CAL_BADGE:(#[A-Fa-f0-9]+):([^:]+):(\d{2}:\d{2})\}\}/g,
-    function(match, color, title, time) {
-      return '<span class="rf-cal-badge" style="--cal-color: ' + color + '"><i class="fa-regular fa-calendar"></i> ' + title + ' <span class="rf-cal-time">' + time + '</span></span>';
-    });
+  // Restore calendar badge
+  if (calBadgeHTML) {
+    s = s.replace('\x00CALBADGE\x00', calBadgeHTML);
+  }
 
   // Bold
   s = s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
