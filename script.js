@@ -213,7 +213,7 @@ function ensureSection(note, subHeading) {
   // Check if # Reflect exists
   var reflectLine = findHeadingLine(note, REFLECT_HEADING, 1);
   if (reflectLine === -1) {
-    // Append # Reflect at end
+    // Append # Reflect at end with trailing empty line
     note.appendParagraph('', 'empty');
     note.appendParagraph(REFLECT_HEADING, 'title');
     reflectLine = note.paragraphs.length - 1;
@@ -226,17 +226,17 @@ function ensureSection(note, subHeading) {
   }
 
   // Need to create ## subHeading — find where to insert it
-  // Insert after the last content of # Reflect (before any other H1)
   var reflectRange = findSectionRange(note, REFLECT_HEADING, 1);
   if (!reflectRange) {
-    // This shouldn't happen since we just created it
     note.appendParagraph(subHeading, 'title');
-    return note.paragraphs.length - 1;
+    note.appendParagraph('', 'empty');
+    return note.paragraphs.length - 2;
   }
 
-  // Insert at end of Reflect section
+  // Insert at end of Reflect section, with trailing empty line
   var insertAt = reflectRange.end;
   note.insertHeading(subHeading, insertAt, 2);
+  note.insertParagraph('', insertAt + 1, 'empty');
   return insertAt;
 }
 
@@ -576,14 +576,33 @@ function reorderPlanTasks(note, orderedLineIndices) {
   }
 }
 
+/**
+ * Find the insertion point at the end of a section's content,
+ * skipping any trailing empty lines (insert before them).
+ */
+function getSectionInsertPoint(note, heading, level) {
+  var range = findSectionRange(note, heading, level);
+  if (!range) return -1;
+  var paras = note.paragraphs;
+  // Walk backwards from end to skip trailing empty lines
+  var insertAt = range.end;
+  for (var i = range.end - 1; i >= range.start; i--) {
+    if (paras[i].type !== 'empty' && paras[i].content && paras[i].content.trim() !== '') {
+      insertAt = i + 1;
+      break;
+    }
+  }
+  return insertAt;
+}
+
 function startFocusSession(note, taskContent) {
   ensureSection(note, 'Focus');
-  var range = findSectionRange(note, 'Focus', 2);
-  if (!range) return;
+  var insertAt = getSectionInsertPoint(note, 'Focus', 2);
+  if (insertAt < 0) return;
 
   var timeStr = getTimeStr();
-  var logEntry = timeStr + ' started focus session for: ' + taskContent;
-  note.insertParagraph(logEntry, range.end, 'list');
+  var logEntry = timeStr + ' *- started focus session for:* ' + taskContent;
+  note.insertParagraph(logEntry, insertAt, 'list');
 
   // Save timer state
   saveTimerState({ startTime: Date.now(), taskContent: taskContent });
@@ -595,26 +614,26 @@ function stopFocusSession(note, focusNotes) {
   if (!timer.startTime) return;
 
   ensureSection(note, 'Focus');
-  var range = findSectionRange(note, 'Focus', 2);
-  if (!range) return;
+  var insertAt = getSectionInsertPoint(note, 'Focus', 2);
+  if (insertAt < 0) return;
 
   var elapsed = Date.now() - timer.startTime;
   var duration = formatDuration(elapsed);
   var timeStr = getTimeStr();
-  var logEntry = timeStr + ' stopped focus session for: ' + timer.taskContent + ' (' + duration + ')';
-  note.insertParagraph(logEntry, range.end, 'list');
 
-  // Add notes as indented bullet if provided
+  // Insert notes as indented blockquote BEFORE the stop line
   if (focusNotes && focusNotes.trim()) {
-    // Re-read range since we just inserted
-    var updatedRange = findSectionRange(note, 'Focus', 2);
     var notesText = focusNotes.trim();
-    // If notes already starts with a bullet marker, just indent it
+    // Strip leading bullet marker if present
     if (notesText.startsWith('- ') || notesText.startsWith('* ')) {
       notesText = notesText.substring(2);
     }
-    note.insertParagraph('\t' + notesText, updatedRange.end, 'list');
+    note.insertParagraph('\t> ' + notesText, insertAt, 'text');
+    insertAt++; // adjust for the line we just inserted
   }
+
+  var logEntry = timeStr + ' *- stopped focus session for:* ' + timer.taskContent + ' (' + duration + ')';
+  note.insertParagraph(logEntry, insertAt, 'list');
 
   // Clear timer state
   saveTimerState({});
