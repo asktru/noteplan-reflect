@@ -5,9 +5,9 @@
 // CONFIGURATION
 // ============================================
 
-const PLUGIN_ID = 'asktru.Reflect';
-const WINDOW_ID = 'asktru.Reflect.dashboard';
-const REFLECT_HEADING = 'Reflect';
+var PLUGIN_ID = 'asktru.Reflect';
+var WINDOW_ID = 'asktru.Reflect.dashboard';
+var REFLECT_HEADING = 'Reflect';
 
 // Task cache — avoid re-scanning on every tab switch
 var _taskCache = null;
@@ -445,37 +445,51 @@ async function fetchClickUpTasks(apiToken, teamId) {
       return [];
     }
 
-    // Step 1: Get authorized user to find their member ID
-    var meResp = await fetch('https://api.clickup.com/api/v2/user', {
-      method: 'GET',
-      headers: { 'Authorization': apiToken },
-    });
-    var meData = null;
-    var assigneeParam = '';
-    if (meResp.ok) {
-      meData = JSON.parse(await meResp.text());
-      var userId = meData && meData.user ? String(meData.user.id) : '';
-      if (userId) assigneeParam = '&assignees%5B%5D=' + userId;
+    // NotePlan's fetch() may return non-standard response objects.
+    // Try multiple patterns to handle the response.
+    async function doFetch(url) {
+      var resp = await fetch(url, { method: 'GET', headers: { 'Authorization': apiToken } });
+      // Standard fetch Response
+      if (resp && typeof resp.text === 'function') {
+        var body = await resp.text();
+        console.log('Reflect: fetch response type=standard, status=' + resp.status + ', bodyLen=' + (body || '').length);
+        return body;
+      }
+      // NotePlan might return the body directly as a string
+      if (typeof resp === 'string') {
+        console.log('Reflect: fetch returned string directly, len=' + resp.length);
+        return resp;
+      }
+      // Or an object with a body/data property
+      if (resp && resp.body) return typeof resp.body === 'string' ? resp.body : JSON.stringify(resp.body);
+      if (resp && resp.data) return typeof resp.data === 'string' ? resp.data : JSON.stringify(resp.data);
+      console.log('Reflect: fetch returned unknown type: ' + typeof resp + ' keys=' + (resp ? Object.keys(resp).join(',') : 'null'));
+      return JSON.stringify(resp);
     }
 
-    // Step 2: Get tasks — filter by assignee if we have it
+    // Step 1: Get authorized user to find their member ID
+    var assigneeParam = '';
+    try {
+      var meBody = await doFetch('https://api.clickup.com/api/v2/user');
+      var meData = JSON.parse(meBody);
+      var userId = meData && meData.user ? String(meData.user.id) : '';
+      if (userId) {
+        assigneeParam = '&assignees%5B%5D=' + userId;
+        console.log('Reflect: ClickUp user ID=' + userId);
+      }
+    } catch (meErr) {
+      console.log('Reflect: Could not get ClickUp user: ' + String(meErr));
+    }
+
+    // Step 2: Get tasks
     var url = 'https://api.clickup.com/api/v2/team/' + teamId +
       '/task?statuses%5B%5D=open&statuses%5B%5D=in%20progress' +
       '&order_by=due_date&reverse=true&subtasks=true&include_closed=false' +
       assigneeParam;
 
-    console.log('Reflect: Fetching ClickUp tasks from: ' + url);
-    var resp = await fetch(url, {
-      method: 'GET',
-      headers: { 'Authorization': apiToken },
-    });
-    if (!resp.ok) {
-      var errText = '';
-      try { errText = await resp.text(); } catch (e2) {}
-      console.log('Reflect: ClickUp API error ' + resp.status + ': ' + errText);
-      return [];
-    }
-    var data = JSON.parse(await resp.text());
+    console.log('Reflect: Fetching ClickUp tasks...');
+    var body = await doFetch(url);
+    var data = JSON.parse(body);
     console.log('Reflect: Got ' + (data.tasks || []).length + ' ClickUp tasks');
     var tasks = (data.tasks || []).map(function(t) {
       return {
@@ -948,8 +962,8 @@ function buildFullHTML(bodyContent, activeTab, timerStart) {
     bodyContent + '\n' +
     '  <div class="rf-toast" id="rfToast"></div>\n' +
     '  <script>\n    var receivingPluginID = \'' + PLUGIN_ID + '\';\n  <\/script>\n' +
-    '  <script type="text/javascript" src="../np.Shared/pluginToHTMLCommsBridge.js"><\/script>\n' +
     '  <script type="text/javascript" src="reflectEvents.js"><\/script>\n' +
+    '  <script type="text/javascript" src="../np.Shared/pluginToHTMLCommsBridge.js"><\/script>\n' +
     '</body>\n</html>';
 }
 
