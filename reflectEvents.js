@@ -41,6 +41,7 @@ function onMessageFromPlugin(type, data) {
 }
 
 function handleTaskAddedToPlan(data) {
+  try {
   // 1. Add new item to plan list
   var planList = document.getElementById('planList');
   console.log('handleTaskAddedToPlan: planList=' + (planList ? 'found, children=' + planList.children.length : 'NOT FOUND'));
@@ -54,20 +55,32 @@ function handleTaskAddedToPlan(data) {
     item.draggable = true;
     item.dataset.lineIndex = data.lineIndex;
     item.dataset.index = planList.querySelectorAll('.rf-plan-item').length;
+    console.log('handleTaskAddedToPlan: item created');
 
     var handle = document.createElement('span');
     handle.className = 'rf-drag-handle';
-    handle.innerHTML = '<i class="fa-solid fa-grip-vertical"></i>';
+    var handleIcon = document.createElement('i');
+    handleIcon.className = 'fa-solid fa-grip-vertical';
+    handle.appendChild(handleIcon);
 
     var cb = document.createElement('span');
     cb.className = 'rf-plan-cb checklist';
     cb.dataset.action = 'togglePlan';
     cb.dataset.lineIndex = data.lineIndex;
-    cb.innerHTML = '<i class="fa-regular fa-square"></i>';
+    var cbIcon = document.createElement('i');
+    cbIcon.className = 'fa-regular fa-square';
+    cb.appendChild(cbIcon);
 
     var content = document.createElement('span');
     content.className = 'rf-plan-content';
-    content.innerHTML = data.contentHTML;
+    // Use textContent as fallback, innerHTML for rich content
+    if (data.contentHTML && data.contentHTML.indexOf('<') >= 0) {
+      console.log('handleTaskAddedToPlan: setting innerHTML, len=' + data.contentHTML.length);
+      content.innerHTML = data.contentHTML;
+      console.log('handleTaskAddedToPlan: innerHTML set OK');
+    } else {
+      content.textContent = data.originalContent || '';
+    }
 
     var timeBtn = document.createElement('button');
     timeBtn.className = 'rf-time-btn';
@@ -75,9 +88,14 @@ function handleTaskAddedToPlan(data) {
     timeBtn.dataset.lineIndex = data.lineIndex;
     timeBtn.title = 'Set time estimate';
     if (data.durationStr) {
-      timeBtn.innerHTML = '<span class="rf-time-label">' + escHTML(data.durationStr) + '</span>';
+      var timeLabel = document.createElement('span');
+      timeLabel.className = 'rf-time-label';
+      timeLabel.textContent = data.durationStr;
+      timeBtn.appendChild(timeLabel);
     } else {
-      timeBtn.innerHTML = '<i class="fa-regular fa-clock"></i>';
+      var clockIcon = document.createElement('i');
+      clockIcon.className = 'fa-regular fa-clock';
+      timeBtn.appendChild(clockIcon);
     }
 
     item.appendChild(handle);
@@ -120,6 +138,9 @@ function handleTaskAddedToPlan(data) {
   console.log('handleTaskAddedToPlan: matched ' + matched + ' source tasks');
 
   showToast('Added to plan');
+  } catch (err) {
+    console.log('handleTaskAddedToPlan ERROR: ' + err + ' stack=' + (err.stack || ''));
+  }
 }
 
 function handlePlanReordered(data) {

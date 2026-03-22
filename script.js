@@ -780,8 +780,8 @@ function renderMarkdown(str) {
   var calParsed = parseCalendarLink(str);
   var calBadgeHTML = '';
   if (calParsed.found) {
-    calBadgeHTML = '<span class="rf-cal-badge" style="--cal-color: ' + esc(calParsed.color) + '">' +
-      '<i class="fa-regular fa-calendar"></i> ' + esc(calParsed.title) +
+    calBadgeHTML = '<span class="rf-cal-badge" data-color="' + esc(calParsed.color) + '">' +
+      '<i class="fa-regular fa-calendar" style="color:' + esc(calParsed.color) + '"></i> ' + esc(calParsed.title) +
       ' <span class="rf-cal-time">' + esc(calParsed.time) + '</span></span>';
     // Replace the link with a placeholder, process the rest normally
     str = calParsed.before + '__CALBADGE__' + calParsed.after;
