@@ -43,6 +43,7 @@ function onMessageFromPlugin(type, data) {
 function handleTaskAddedToPlan(data) {
   // 1. Add new item to plan list
   var planList = document.getElementById('planList');
+  console.log('handleTaskAddedToPlan: planList=' + (planList ? 'found, children=' + planList.children.length : 'NOT FOUND'));
   if (planList) {
     // Remove empty state if present
     var empty = planList.querySelector('.rf-empty');
@@ -84,6 +85,7 @@ function handleTaskAddedToPlan(data) {
     item.appendChild(content);
     item.appendChild(timeBtn);
     planList.appendChild(item);
+    console.log('handleTaskAddedToPlan: appended item, planList now has ' + planList.children.length + ' children');
 
     // Attach drag events to new item
     item.addEventListener('dragstart', handleDragStart);
@@ -99,8 +101,11 @@ function handleTaskAddedToPlan(data) {
 
   // 3. Mark source task as in-plan
   var sourceTasks = document.querySelectorAll('.rf-source-task');
+  console.log('handleTaskAddedToPlan: looking for originalContent="' + data.originalContent + '" among ' + sourceTasks.length + ' source tasks');
+  var matched = 0;
   sourceTasks.forEach(function(el) {
     if (el.dataset.content === data.originalContent) {
+      matched++;
       el.classList.add('in-plan');
       // Replace + button with checkmark
       var addBtn = el.querySelector('.rf-source-add');
@@ -112,6 +117,7 @@ function handleTaskAddedToPlan(data) {
       }
     }
   });
+  console.log('handleTaskAddedToPlan: matched ' + matched + ' source tasks');
 
   showToast('Added to plan');
 }
@@ -129,9 +135,12 @@ function handlePlanReordered(data) {
 }
 
 function handleTimeEstimateSet(data) {
+  console.log('handleTimeEstimateSet: lineIndex=' + data.lineIndex + ' estimate=' + data.estimate);
   var item = document.querySelector('.rf-plan-item[data-line-index="' + data.lineIndex + '"]');
+  console.log('handleTimeEstimateSet: item=' + (item ? 'found' : 'NOT FOUND'));
   if (!item) return;
   var btn = item.querySelector('.rf-time-btn');
+  console.log('handleTimeEstimateSet: btn=' + (btn ? 'found' : 'NOT FOUND'));
   if (btn) {
     if (data.estimate) {
       btn.innerHTML = '<span class="rf-time-label">' + escHTML(data.estimate) + '</span>';
