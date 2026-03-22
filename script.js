@@ -735,13 +735,19 @@ function renderPriorityBadge(level) {
 
 function renderMarkdown(str) {
   if (!str) return '';
-  var s = esc(str);
 
   // Calendar event deeplink: ![📅](DATE TIME:::ID:::NA:::TITLE:::COLOR)
-  // The esc() would have turned it into: ![](...) with &amp; etc, but since
-  // the content doesn't have special HTML chars in this pattern, just match escaped version
-  s = s.replace(/!\[.*?\]\((\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}):::([^:]*?):::NA:::([^:]*?):::([^)]*?)\)/g,
+  // Process BEFORE esc() so we can match the raw syntax reliably
+  str = str.replace(/!\[[^\]]*\]\((\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}):::([^:]*):::NA:::([^:]*):::(#[A-Fa-f0-9]+)\)/g,
     function(match, date, time, eventId, title, color) {
+      return '{{CAL_BADGE:' + color + ':' + title + ':' + time + '}}';
+    });
+
+  var s = esc(str);
+
+  // Restore calendar badges after escaping
+  s = s.replace(/\{\{CAL_BADGE:(#[A-Fa-f0-9]+):([^:]+):(\d{2}:\d{2})\}\}/g,
+    function(match, color, title, time) {
       return '<span class="rf-cal-badge" style="--cal-color: ' + color + '"><i class="fa-regular fa-calendar"></i> ' + title + ' <span class="rf-cal-time">' + time + '</span></span>';
     });
 

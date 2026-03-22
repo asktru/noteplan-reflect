@@ -93,11 +93,8 @@ function handleTaskAddedToPlan(data) {
     item.addEventListener('dragend', handleDragEnd);
   }
 
-  // 2. Update remaining count
-  var countEl = document.querySelector('.rf-plan-count');
-  if (countEl && data.remaining !== undefined) {
-    countEl.textContent = data.remaining + ' remaining';
-  }
+  // 2. Update remaining count + total time
+  updatePlanTotal();
 
   // 3. Mark source task as in-plan
   var sourceTasks = document.querySelectorAll('.rf-source-task');
@@ -363,13 +360,12 @@ function handleAddCalendarToPlan(el) {
   var content = el.dataset.content || '';
   var duration = el.dataset.duration || '';
   var calendarLink = el.dataset.calendarLink || '';
-  if (!calendarLink) {
-    var task = el.closest('.rf-source-task');
-    if (task) {
-      content = task.dataset.content || '';
-      duration = task.dataset.duration || '';
-      calendarLink = task.dataset.calendarLink || '';
-    }
+  // Always try the parent source-task for complete data
+  var task = el.closest('.rf-source-task');
+  if (task) {
+    if (!content) content = task.dataset.content || '';
+    if (!duration) duration = task.dataset.duration || '';
+    if (!calendarLink) calendarLink = task.dataset.calendarLink || '';
   }
   if (calendarLink) {
     sendMessageToPlugin('addCalendarToPlan', JSON.stringify({ content: content, durationStr: duration, calendarLink: calendarLink }));
