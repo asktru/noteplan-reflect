@@ -16,11 +16,13 @@ var _taskCacheTTL = 30000; // 30 seconds
 
 function invalidateTaskCache() { _taskCache = null; _taskCacheTime = 0; }
 
-function getCachedTasks(note, config) {
+async function getCachedTasks(note, config) {
   var now = Date.now();
   if (_taskCache && (now - _taskCacheTime) < _taskCacheTTL) return _taskCache;
 
+  var calEvents = await getTodayCalendarEvents();
   _taskCache = {
+    calendarEvents: calEvents,
     dailyTasks: getDailyNoteTasks(note),
     scheduledToday: getScheduledForToday(),
     scheduledWeek: getScheduledThisWeek(),
@@ -303,14 +305,16 @@ function getDailyNoteTasks(note) {
 /**
  * Scan all notes for tasks scheduled for a specific date or date range.
  */
-function getScheduledTasks(startDate, endDate) {
+/**
+ * Scan all notes for tasks scheduled in a date range.
+ * includeWeekly: if true, also include tasks from weekly/week-scheduled notes.
+ */
+function getScheduledTasks(startDate, endDate, includeWeekly) {
   var tasks = [];
   var todayStr = getTodayStr();
   var foldersToExclude = ['@Archive', '@Trash', '@Templates'];
 
-  // Helper to check schedule date
-  function hasScheduleInRange(content, start, end) {
-    // Match >YYYY-MM-DD patterns
+  function hasScheduleDateInRange(content, start, end) {
     var matches = content.match(/>(\d{4}-\d{2}-\d{2})/g);
     if (matches) {
       for (var j = 0; j < matches.length; j++) {
@@ -318,19 +322,18 @@ function getScheduledTasks(startDate, endDate) {
         if (d >= start && d <= end) return d;
       }
     }
-    // Match >today
     if (content.indexOf('>today') >= 0 && todayStr >= start && todayStr <= end) return todayStr;
     return null;
   }
 
-  function hasScheduleWeek(content, weekStr) {
+  var currentWeek = includeWeekly ? getISOWeek(todayStr) : null;
+
+  function hasScheduleWeek(content) {
+    if (!currentWeek) return null;
     var match = content.match(/>(\d{4}-W\d{2})/);
-    if (match && match[1] === weekStr) return weekStr;
+    if (match && match[1] === currentWeek) return match[1];
     return null;
   }
-
-  var weekRange = getWeekRange();
-  var currentWeek = getISOWeek(todayStr);
 
   // Scan project notes
   var pNotes = DataStore.projectNotes;
@@ -343,8 +346,8 @@ function getScheduledTasks(startDate, endDate) {
     for (var i = 0; i < paras.length; i++) {
       var p = paras[i];
       if (p.type !== 'open' && p.type !== 'checklist') continue;
-      var schedDate = hasScheduleInRange(p.content, startDate, endDate);
-      var schedWeek = hasScheduleWeek(p.content, currentWeek);
+      var schedDate = hasScheduleDateInRange(p.content, startDate, endDate);
+      var schedWeek = hasScheduleWeek(p.content);
       if (schedDate || schedWeek) {
         tasks.push({
           content: p.content.replace(/>(\d{4}-\d{2}-\d{2}|today|\d{4}-W\d{2})/g, '').trim(),
@@ -360,54 +363,45 @@ function getScheduledTasks(startDate, endDate) {
     }
   }
 
-  // Scan calendar notes (daily notes for the date range)
+  // Scan calendar notes
   var cNotes = DataStore.calendarNotes;
   for (var cn = 0; cn < cNotes.length; cn++) {
     var calNote = cNotes[cn];
     var fn = (calNote.filename || '').replace(/\.(md|txt)$/, '');
 
-    // Daily notes: YYYYMMDD — tasks inherit note's date
+    // Daily notes: YYYYMMDD
     var dailyMatch = fn.match(/^(\d{4})(\d{2})(\d{2})$/);
     if (dailyMatch) {
       var noteDate = dailyMatch[1] + '-' + dailyMatch[2] + '-' + dailyMatch[3];
       if (noteDate < startDate || noteDate > endDate) continue;
-      if (noteDate === todayStr) continue; // Today's daily note is handled separately
-
+      if (noteDate === todayStr) continue;
       var calParas = calNote.paragraphs;
       for (var ci = 0; ci < calParas.length; ci++) {
         var cp = calParas[ci];
         if (cp.type !== 'open' && cp.type !== 'checklist') continue;
         tasks.push({
-          content: cp.content,
-          rawContent: cp.content,
-          type: cp.type,
-          filename: calNote.filename,
-          lineIndex: cp.lineIndex,
-          noteTitle: noteDate,
-          scheduledDate: noteDate,
-          source: 'scheduled',
+          content: cp.content, rawContent: cp.content, type: cp.type,
+          filename: calNote.filename, lineIndex: cp.lineIndex,
+          noteTitle: noteDate, scheduledDate: noteDate, source: 'scheduled',
         });
       }
       continue;
     }
 
-    // Weekly notes: YYYY-Www — tasks inherit week
-    var weekMatch = fn.match(/^(\d{4}-W\d{2})$/);
-    if (weekMatch && weekMatch[1] === currentWeek) {
-      var wParas = calNote.paragraphs;
-      for (var wi = 0; wi < wParas.length; wi++) {
-        var wp = wParas[wi];
-        if (wp.type !== 'open' && wp.type !== 'checklist') continue;
-        tasks.push({
-          content: wp.content,
-          rawContent: wp.content,
-          type: wp.type,
-          filename: calNote.filename,
-          lineIndex: wp.lineIndex,
-          noteTitle: weekMatch[1],
-          scheduledDate: weekMatch[1],
-          source: 'scheduled',
-        });
+    // Weekly notes: only if includeWeekly
+    if (includeWeekly) {
+      var weekMatch = fn.match(/^(\d{4}-W\d{2})$/);
+      if (weekMatch && weekMatch[1] === currentWeek) {
+        var wParas = calNote.paragraphs;
+        for (var wi = 0; wi < wParas.length; wi++) {
+          var wp = wParas[wi];
+          if (wp.type !== 'open' && wp.type !== 'checklist') continue;
+          tasks.push({
+            content: wp.content, rawContent: wp.content, type: wp.type,
+            filename: calNote.filename, lineIndex: wp.lineIndex,
+            noteTitle: weekMatch[1], scheduledDate: weekMatch[1], source: 'scheduled',
+          });
+        }
       }
     }
   }
@@ -416,20 +410,77 @@ function getScheduledTasks(startDate, endDate) {
 }
 
 function getScheduledForToday() {
-  // Today + overdue: from far past up to today
+  // Today + overdue — daily dates only, no weekly/monthly
   var today = getTodayStr();
-  return getScheduledTasks('2000-01-01', today);
+  return getScheduledTasks('2000-01-01', today, false);
 }
 
 function getScheduledThisWeek() {
-  // This week only (future days, excluding today which is in the Today tab)
-  var today = getTodayStr();
-  var range = getWeekRange();
-  // Start from tomorrow to avoid duplicating today's tasks
+  // Future days this week + weekly note tasks
   var tomorrow = new Date();
   tomorrow.setDate(tomorrow.getDate() + 1);
   var tomorrowStr = getDateStr(tomorrow);
-  return getScheduledTasks(tomorrowStr, range.end);
+  var range = getWeekRange();
+  return getScheduledTasks(tomorrowStr, range.end, true);
+}
+
+// ============================================
+// CALENDAR EVENTS
+// ============================================
+
+async function getTodayCalendarEvents() {
+  try {
+    if (typeof Calendar === 'undefined' || typeof Calendar.eventsBetween !== 'function') {
+      console.log('Reflect: Calendar API not available');
+      return [];
+    }
+    var today = new Date();
+    var startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0);
+    var endOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59);
+    var events = await Calendar.eventsBetween(startOfDay, endOfDay, '');
+    if (!events || !Array.isArray(events)) return [];
+
+    var result = [];
+    for (var i = 0; i < events.length; i++) {
+      var ev = events[i];
+      if (!ev.date || ev.isAllDay) continue; // Skip all-day events
+      var startDate = new Date(ev.date);
+      var endDate = ev.endDate ? new Date(ev.endDate) : startDate;
+      var durationMin = Math.round((endDate - startDate) / 60000);
+      if (durationMin <= 0) durationMin = 30;
+
+      // Format duration
+      var durStr = '';
+      if (durationMin >= 60) {
+        var h = Math.floor(durationMin / 60);
+        var m = durationMin % 60;
+        durStr = h + 'h' + (m > 0 ? ' ' + m + 'm' : '');
+      } else {
+        durStr = durationMin + 'm';
+      }
+
+      // Format time
+      var hh = String(startDate.getHours()).padStart(2, '0');
+      var mm = String(startDate.getMinutes()).padStart(2, '0');
+
+      result.push({
+        content: ev.title || 'Event',
+        type: 'calendar',
+        calendarTitle: ev.calendar || '',
+        color: ev.color || '#5A9FD4',
+        startTime: hh + ':' + mm,
+        durationMin: durationMin,
+        durationStr: durStr,
+        source: 'calendar',
+      });
+    }
+    // Sort by start time
+    result.sort(function(a, b) { return a.startTime < b.startTime ? -1 : 1; });
+    return result;
+  } catch (e) {
+    console.log('Reflect: Calendar error: ' + String(e));
+    return [];
+  }
 }
 
 // ============================================
@@ -817,6 +868,33 @@ function buildSourceTask(task, planContentSet) {
   return html;
 }
 
+function buildCalendarSourceTask(event, planContentSet) {
+  var isInPlan = planContentSet && planContentSet[event.content];
+  var taskClass = 'rf-source-task' + (isInPlan ? ' in-plan' : '');
+  var durAttr = ' data-duration="' + esc(event.durationStr) + '"';
+
+  var html = '<div class="' + taskClass + '" data-content="' + esc(event.content) + '"' + durAttr + '>';
+
+  if (isInPlan) {
+    html += '<span class="rf-source-added"><i class="fa-solid fa-check"></i></span>';
+  } else {
+    html += '<button class="rf-source-add" data-action="addToPlanWithDuration" data-content="' + esc(event.content) + '" data-duration="' + esc(event.durationStr) + '" title="Add to plan (S)">';
+    html += '<i class="fa-solid fa-plus"></i>';
+    html += '</button>';
+  }
+
+  html += '<div class="rf-source-task-body">';
+  html += '<span class="rf-source-task-content">' + esc(event.content) + '</span>';
+  html += '<div class="rf-source-task-meta">';
+  html += '<span class="rf-source-date"><i class="fa-regular fa-clock"></i> ' + esc(event.startTime) + '</span>';
+  html += '<span class="rf-source-meta"><i class="fa-solid fa-hourglass"></i> ' + esc(event.durationStr) + '</span>';
+  if (event.calendarTitle) {
+    html += '<span class="rf-source-meta" style="border-left: 3px solid ' + esc(event.color) + '; padding-left: 6px;">' + esc(event.calendarTitle) + '</span>';
+  }
+  html += '</div></div></div>';
+  return html;
+}
+
 function buildTodayTab(planTasks) {
   var remaining = planTasks.filter(function(t) { return !t.isComplete; });
   var completed = planTasks.filter(function(t) { return t.isComplete; });
@@ -859,11 +937,17 @@ function buildTodayTab(planTasks) {
   return html;
 }
 
-function buildPlanTab(planTasks, dailyTasks, scheduledToday, scheduledWeek, hasClickUp) {
+function buildPlanTab(data) {
+  var planTasks = data.planTasks;
+  var calendarEvents = data.calendarEvents || [];
+  var dailyTasks = data.dailyTasks;
+  var scheduledToday = data.scheduledToday;
+  var scheduledWeek = data.scheduledWeek;
+  var hasClickUp = data.hasClickUp;
+
   // Build set of plan task contents for marking already-added tasks
   var planContentSet = {};
   for (var p = 0; p < planTasks.length; p++) {
-    // Match against content without time estimate
     var parsed = extractTimeEstimate(planTasks[p].content);
     planContentSet[parsed.content] = true;
     planContentSet[planTasks[p].content] = true;
@@ -909,27 +993,30 @@ function buildPlanTab(planTasks, dailyTasks, scheduledToday, scheduledWeek, hasC
   html += '</div>';
   html += '</div>';
 
-  // Right: Sources
+  // Right: Sources — order: Calendar, Today, This Week, ClickUp, Daily Note
   html += '<div class="rf-sources-panel">';
   html += '<div class="rf-source-tabs">';
-  html += '<button class="rf-source-tab active" data-source="daily">Daily Note</button>';
+  html += '<button class="rf-source-tab active" data-source="calendar"><i class="fa-regular fa-calendar"></i> Calendar</button>';
   html += '<button class="rf-source-tab" data-source="today">Today</button>';
   html += '<button class="rf-source-tab" data-source="week">This Week</button>';
   if (hasClickUp) {
     html += '<button class="rf-source-tab" data-source="clickup">ClickUp</button>';
   }
+  html += '<button class="rf-source-tab" data-source="daily">Daily Note</button>';
   html += '</div>';
 
-  html += '<div class="rf-source-list active" data-source="daily">';
-  if (dailyTasks.length === 0) {
-    html += '<div class="rf-empty">No tasks in today\'s daily note</div>';
+  // Calendar events
+  html += '<div class="rf-source-list active" data-source="calendar">';
+  if (calendarEvents.length === 0) {
+    html += '<div class="rf-empty">No calendar events for today</div>';
   } else {
-    for (var d = 0; d < dailyTasks.length; d++) {
-      html += buildSourceTask(dailyTasks[d], planContentSet);
+    for (var ce = 0; ce < calendarEvents.length; ce++) {
+      html += buildCalendarSourceTask(calendarEvents[ce], planContentSet);
     }
   }
   html += '</div>';
 
+  // Today (overdue + today, daily dates only)
   html += '<div class="rf-source-list" data-source="today">';
   if (scheduledToday.length === 0) {
     html += '<div class="rf-empty">No tasks scheduled for today</div>';
@@ -940,6 +1027,7 @@ function buildPlanTab(planTasks, dailyTasks, scheduledToday, scheduledWeek, hasC
   }
   html += '</div>';
 
+  // This Week
   html += '<div class="rf-source-list" data-source="week">';
   if (scheduledWeek.length === 0) {
     html += '<div class="rf-empty">No tasks scheduled this week</div>';
@@ -950,11 +1038,23 @@ function buildPlanTab(planTasks, dailyTasks, scheduledToday, scheduledWeek, hasC
   }
   html += '</div>';
 
+  // ClickUp (lazy loaded)
   if (hasClickUp) {
     html += '<div class="rf-source-list" data-source="clickup">';
     html += '<div class="rf-empty rf-clickup-loading">Loading ClickUp tasks...</div>';
     html += '</div>';
   }
+
+  // Daily Note
+  html += '<div class="rf-source-list" data-source="daily">';
+  if (dailyTasks.length === 0) {
+    html += '<div class="rf-empty">No tasks in today\'s daily note</div>';
+  } else {
+    for (var d = 0; d < dailyTasks.length; d++) {
+      html += buildSourceTask(dailyTasks[d], planContentSet);
+    }
+  }
+  html += '</div>';
 
   html += '</div>';
   html += '</div>';
@@ -1033,7 +1133,7 @@ function buildDashboardHTML(tab, data) {
       html += buildFocusTab(data.planTasks, data.timerState);
       break;
     case 'plan':
-      html += buildPlanTab(data.planTasks, data.dailyTasks, data.scheduledToday, data.scheduledWeek, data.hasClickUp);
+      html += buildPlanTab(data);
       break;
     case 'shutdown':
       html += buildPlaceholderTab('Shutdown');
@@ -1476,7 +1576,8 @@ async function showReflect(tab) {
     if (note) {
       data.planTasks = getPlanTasks(note);
       if (activeTab === 'plan') {
-        var cached = getCachedTasks(note, config);
+        var cached = await getCachedTasks(note, config);
+        data.calendarEvents = cached.calendarEvents;
         data.dailyTasks = cached.dailyTasks;
         data.scheduledToday = cached.scheduledToday;
         data.scheduledWeek = cached.scheduledWeek;
@@ -1532,14 +1633,17 @@ async function onMessageFromHTMLView(actionType, data) {
         break;
 
       case 'addToPlan':
+      case 'addToPlanWithDuration':
         if (note && msg.content) {
           var planContent = msg.content;
           if (msg.clickupId) {
             planContent += ' [ClickUp](https://app.clickup.com/t/' + msg.clickupId + ')';
           }
+          if (msg.durationStr) {
+            planContent += ' *- ' + msg.durationStr + '*';
+          }
           addToPlan(note, planContent);
           invalidateTaskCache();
-          // Get the newly inserted task's line index
           var updatedPlan = getPlanTasks(note);
           var newTask = updatedPlan[updatedPlan.length - 1];
           var remaining = updatedPlan.filter(function(t) { return !t.isComplete; }).length;
@@ -1549,6 +1653,7 @@ async function onMessageFromHTMLView(actionType, data) {
             lineIndex: newTask ? newTask.lineIndex : -1,
             originalContent: msg.content,
             remaining: remaining,
+            durationStr: msg.durationStr || '',
           });
         }
         break;

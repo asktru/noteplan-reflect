@@ -67,9 +67,21 @@ function handleTaskAddedToPlan(data) {
     content.className = 'rf-plan-content';
     content.innerHTML = data.contentHTML;
 
+    var timeBtn = document.createElement('button');
+    timeBtn.className = 'rf-time-btn';
+    timeBtn.dataset.action = 'showTimePicker';
+    timeBtn.dataset.lineIndex = data.lineIndex;
+    timeBtn.title = 'Set time estimate';
+    if (data.durationStr) {
+      timeBtn.innerHTML = '<span class="rf-time-label">' + escHTML(data.durationStr) + '</span>';
+    } else {
+      timeBtn.innerHTML = '<i class="fa-regular fa-clock"></i>';
+    }
+
     item.appendChild(handle);
     item.appendChild(cb);
     item.appendChild(content);
+    item.appendChild(timeBtn);
     planList.appendChild(item);
 
     // Attach drag events to new item
@@ -347,6 +359,21 @@ function renderClickUpTasks(tasks) {
 // ADD TO PLAN
 // ============================================
 
+function handleAddToPlanWithDuration(el) {
+  var content = el.dataset.content || '';
+  var duration = el.dataset.duration || '';
+  if (!content) {
+    var task = el.closest('.rf-source-task');
+    if (task) {
+      content = task.dataset.content || '';
+      duration = task.dataset.duration || '';
+    }
+  }
+  if (content) {
+    sendMessageToPlugin('addToPlanWithDuration', JSON.stringify({ content: content, durationStr: duration }));
+  }
+}
+
 function handleAddToPlan(el) {
   var content = el.dataset.content;
   var clickupId = el.dataset.clickupId || '';
@@ -376,8 +403,10 @@ function handleKeyboardShortcut(e) {
     e.preventDefault();
     var content = hoveredTask.dataset.content;
     var clickupId = hoveredTask.dataset.clickupId || '';
+    var duration = hoveredTask.dataset.duration || '';
     if (content) {
-      sendMessageToPlugin('addToPlan', JSON.stringify({ content: content, clickupId: clickupId }));
+      var msgType = duration ? 'addToPlanWithDuration' : 'addToPlan';
+      sendMessageToPlugin(msgType, JSON.stringify({ content: content, clickupId: clickupId, durationStr: duration }));
       showToast('Added to plan');
     }
   }
@@ -591,6 +620,9 @@ document.addEventListener('DOMContentLoaded', function() {
         break;
       case 'completeFocusTask':
         handleCompleteFocusTask(target);
+        break;
+      case 'addToPlanWithDuration':
+        handleAddToPlanWithDuration(target);
         break;
       case 'showTimePicker':
         showTimePicker(target);
