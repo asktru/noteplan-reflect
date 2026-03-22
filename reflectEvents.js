@@ -27,6 +27,9 @@ function onMessageFromPlugin(type, data) {
     case 'PLAN_REORDERED':
       handlePlanReordered(data);
       break;
+    case 'TIME_ESTIMATE_SET':
+      handleTimeEstimateSet(data);
+      break;
     case 'SHOW_TOAST':
       showToast(data.message);
       break;
@@ -113,6 +116,118 @@ function handlePlanReordered(data) {
     var cb = items[i].querySelector('.rf-plan-cb');
     if (cb) cb.dataset.lineIndex = indices[i];
   }
+}
+
+function handleTimeEstimateSet(data) {
+  var item = document.querySelector('.rf-plan-item[data-line-index="' + data.lineIndex + '"]');
+  if (!item) return;
+  var btn = item.querySelector('.rf-time-btn');
+  if (btn) {
+    if (data.estimate) {
+      btn.innerHTML = '<span class="rf-time-label">' + escHTML(data.estimate) + '</span>';
+    } else {
+      btn.innerHTML = '<i class="fa-regular fa-clock"></i>';
+    }
+  }
+  // Update total in header
+  updatePlanTotal();
+}
+
+function updatePlanTotal() {
+  var items = document.querySelectorAll('#planList .rf-plan-item:not(.is-done)');
+  var totalMin = 0;
+  items.forEach(function(el) {
+    var label = el.querySelector('.rf-time-label');
+    if (label) {
+      var text = label.textContent;
+      var hm = text.match(/(\d+(?:\.\d+)?)h/);
+      var mm = text.match(/(\d+)m/);
+      if (hm) totalMin += parseFloat(hm[1]) * 60;
+      if (mm) totalMin += parseInt(mm[1], 10);
+    }
+  });
+  var countEl = document.querySelector('.rf-plan-count');
+  if (countEl) {
+    var remaining = document.querySelectorAll('#planList .rf-plan-item:not(.is-done)').length;
+    var totalStr = '';
+    if (totalMin > 0) {
+      var hrs = Math.floor(totalMin / 60);
+      var mins = totalMin % 60;
+      totalStr = hrs > 0 ? (hrs + 'h' + (mins > 0 ? ' ' + mins + 'm' : '')) : (mins + 'm');
+    }
+    countEl.textContent = remaining + ' remaining' + (totalStr ? ' \u00B7 ' + totalStr : '');
+  }
+}
+
+// ============================================
+// TIME PICKER
+// ============================================
+
+var TIME_OPTIONS = [
+  '5m', '10m', '15m', '25m', '30m', '45m',
+  '1h', '1.5h', '2h', '2.5h', '3h', '4h', '5h', '6h', '7h', '8h'
+];
+
+function showTimePicker(btn) {
+  closeTimePicker();
+  var lineIndex = btn.dataset.lineIndex;
+  var currentLabel = btn.querySelector('.rf-time-label');
+  var currentValue = currentLabel ? currentLabel.textContent : '';
+
+  var picker = document.createElement('div');
+  picker.className = 'rf-time-picker';
+  picker.id = 'rfTimePicker';
+
+  for (var i = 0; i < TIME_OPTIONS.length; i++) {
+    var opt = document.createElement('button');
+    opt.className = 'rf-time-option' + (TIME_OPTIONS[i] === currentValue ? ' active' : '');
+    opt.textContent = TIME_OPTIONS[i];
+    opt.dataset.estimate = TIME_OPTIONS[i];
+    opt.dataset.lineIndex = lineIndex;
+    opt.dataset.action = 'pickTime';
+    picker.appendChild(opt);
+  }
+
+  // Clear option
+  var clearOpt = document.createElement('button');
+  clearOpt.className = 'rf-time-option clear';
+  clearOpt.textContent = 'Clear';
+  clearOpt.dataset.estimate = '';
+  clearOpt.dataset.lineIndex = lineIndex;
+  clearOpt.dataset.action = 'pickTime';
+  picker.appendChild(clearOpt);
+
+  // Position near the button
+  var rect = btn.getBoundingClientRect();
+  picker.style.top = rect.bottom + 4 + 'px';
+  picker.style.right = (window.innerWidth - rect.right) + 'px';
+
+  document.body.appendChild(picker);
+
+  // Close on outside click
+  setTimeout(function() {
+    document.addEventListener('click', closeTimePickerOnOutside);
+  }, 0);
+}
+
+function closeTimePicker() {
+  var existing = document.getElementById('rfTimePicker');
+  if (existing) existing.remove();
+  document.removeEventListener('click', closeTimePickerOnOutside);
+}
+
+function closeTimePickerOnOutside(e) {
+  var picker = document.getElementById('rfTimePicker');
+  if (picker && !picker.contains(e.target) && !e.target.closest('[data-action="showTimePicker"]')) {
+    closeTimePicker();
+  }
+}
+
+function handlePickTime(el) {
+  var lineIndex = el.dataset.lineIndex;
+  var estimate = el.dataset.estimate;
+  closeTimePicker();
+  sendMessageToPlugin('setTimeEstimate', JSON.stringify({ lineIndex: lineIndex, estimate: estimate }));
 }
 
 // ============================================
@@ -476,6 +591,12 @@ document.addEventListener('DOMContentLoaded', function() {
         break;
       case 'completeFocusTask':
         handleCompleteFocusTask(target);
+        break;
+      case 'showTimePicker':
+        showTimePicker(target);
+        break;
+      case 'pickTime':
+        handlePickTime(target);
         break;
     }
   });

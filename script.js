@@ -534,6 +534,21 @@ function togglePlanTask(note, lineIndex) {
   note.updateParagraph(p);
 }
 
+function setTimeEstimate(note, lineIndex, estimate) {
+  var paras = note.paragraphs;
+  if (lineIndex < 0 || lineIndex >= paras.length) return;
+  var p = paras[lineIndex];
+  // Remove existing time estimate
+  var cleaned = p.content.replace(/\s*\*-\s*\d+(?:\.\d+)?h(?:\s*\d+m)?\*\s*$/, '').replace(/\s*\*-\s*\d+m\*\s*$/, '');
+  // Append new estimate if provided
+  if (estimate) {
+    p.content = cleaned + ' *- ' + estimate + '*';
+  } else {
+    p.content = cleaned;
+  }
+  note.updateParagraph(p);
+}
+
 function reorderPlanTasks(note, orderedLineIndices) {
   var range = findSectionRange(note, 'Plan', 2);
   if (!range) return;
@@ -716,19 +731,51 @@ function buildNav(activeTab) {
   return html;
 }
 
-function buildPlanItem(task, index) {
+/**
+ * Extract time estimate from task content.
+ * Pattern: *- Xh*, *- Xm*, *- Xh Ym* at the end of the content.
+ */
+function extractTimeEstimate(content) {
+  var match = content.match(/\s*\*-\s*(\d+(?:\.\d+)?h(?:\s*\d+m)?|\d+m)\*\s*$/);
+  if (match) {
+    return {
+      estimate: match[1],
+      content: content.substring(0, content.length - match[0].length),
+    };
+  }
+  return { estimate: '', content: content };
+}
+
+function formatEstimateLabel(est) {
+  if (!est) return '';
+  return est;
+}
+
+function buildPlanItem(task, index, editable) {
   var isDone = task.isComplete;
   var cbClass = isDone ? 'checklistDone' : 'checklist';
   var cbIcon = isDone ? 'fa-solid fa-square-check' : 'fa-regular fa-square';
   var itemClass = 'rf-plan-item' + (isDone ? ' is-done' : '');
-  var contentHTML = renderTaskContent(task.content);
 
-  var html = '<div class="' + itemClass + '" draggable="true" data-line-index="' + task.lineIndex + '" data-index="' + index + '">';
-  html += '<span class="rf-drag-handle"><i class="fa-solid fa-grip-vertical"></i></span>';
+  var parsed = extractTimeEstimate(task.content);
+  var contentHTML = renderTaskContent(parsed.content);
+  var estimateLabel = parsed.estimate;
+
+  var html = '<div class="' + itemClass + '" draggable="' + (editable ? 'true' : 'false') + '" data-line-index="' + task.lineIndex + '" data-index="' + index + '">';
+  if (editable) {
+    html += '<span class="rf-drag-handle"><i class="fa-solid fa-grip-vertical"></i></span>';
+  }
   html += '<span class="rf-plan-cb ' + cbClass + '" data-action="togglePlan" data-line-index="' + task.lineIndex + '">';
   html += '<i class="' + cbIcon + '"></i>';
   html += '</span>';
   html += '<span class="rf-plan-content">' + contentHTML + '</span>';
+  if (editable) {
+    html += '<button class="rf-time-btn" data-action="showTimePicker" data-line-index="' + task.lineIndex + '" title="Set time estimate">';
+    html += estimateLabel ? '<span class="rf-time-label">' + esc(estimateLabel) + '</span>' : '<i class="fa-regular fa-clock"></i>';
+    html += '</button>';
+  } else if (estimateLabel) {
+    html += '<span class="rf-time-badge">' + esc(estimateLabel) + '</span>';
+  }
   html += '</div>';
   return html;
 }
@@ -770,27 +817,93 @@ function buildSourceTask(task, planContentSet) {
   return html;
 }
 
-function buildTodayTab(planTasks, dailyTasks, scheduledToday, scheduledWeek, hasClickUp) {
+function buildTodayTab(planTasks) {
+  var remaining = planTasks.filter(function(t) { return !t.isComplete; });
+  var completed = planTasks.filter(function(t) { return t.isComplete; });
+
+  // Calculate total estimated time
+  var totalMinutes = 0;
+  for (var t = 0; t < remaining.length; t++) {
+    var est = extractTimeEstimate(remaining[t].content).estimate;
+    if (est) {
+      var hMatch = est.match(/(\d+(?:\.\d+)?)h/);
+      var mMatch = est.match(/(\d+)m/);
+      if (hMatch) totalMinutes += parseFloat(hMatch[1]) * 60;
+      if (mMatch) totalMinutes += parseInt(mMatch[1], 10);
+    }
+  }
+  var totalStr = '';
+  if (totalMinutes > 0) {
+    var hrs = Math.floor(totalMinutes / 60);
+    var mins = totalMinutes % 60;
+    totalStr = hrs > 0 ? (hrs + 'h' + (mins > 0 ? ' ' + mins + 'm' : '')) : (mins + 'm');
+  }
+
+  var html = '<div class="rf-today-overview">';
+  html += '<div class="rf-panel-header">';
+  html += '<h2 class="rf-panel-title">Today\'s Plan</h2>';
+  html += '<span class="rf-plan-count">' + remaining.length + ' remaining';
+  if (totalStr) html += ' &middot; ' + esc(totalStr);
+  html += '</span>';
+  html += '</div>';
+  html += '<div class="rf-plan-list" id="planList">';
+  if (planTasks.length === 0) {
+    html += '<div class="rf-empty">No tasks planned yet. Go to the <strong>Plan</strong> tab to add tasks.</div>';
+  } else {
+    for (var i = 0; i < planTasks.length; i++) {
+      html += buildPlanItem(planTasks[i], i, false);
+    }
+  }
+  html += '</div>';
+  html += '</div>';
+  return html;
+}
+
+function buildPlanTab(planTasks, dailyTasks, scheduledToday, scheduledWeek, hasClickUp) {
   // Build set of plan task contents for marking already-added tasks
   var planContentSet = {};
   for (var p = 0; p < planTasks.length; p++) {
+    // Match against content without time estimate
+    var parsed = extractTimeEstimate(planTasks[p].content);
+    planContentSet[parsed.content] = true;
     planContentSet[planTasks[p].content] = true;
+  }
+
+  // Calculate total estimated time for remaining tasks
+  var remaining = planTasks.filter(function(t) { return !t.isComplete; });
+  var totalMinutes = 0;
+  for (var t = 0; t < remaining.length; t++) {
+    var est = extractTimeEstimate(remaining[t].content).estimate;
+    if (est) {
+      var hMatch = est.match(/(\d+(?:\.\d+)?)h/);
+      var mMatch = est.match(/(\d+)m/);
+      if (hMatch) totalMinutes += parseFloat(hMatch[1]) * 60;
+      if (mMatch) totalMinutes += parseInt(mMatch[1], 10);
+    }
+  }
+  var totalStr = '';
+  if (totalMinutes > 0) {
+    var hrs = Math.floor(totalMinutes / 60);
+    var mins = totalMinutes % 60;
+    totalStr = hrs > 0 ? (hrs + 'h' + (mins > 0 ? ' ' + mins + 'm' : '')) : (mins + 'm');
   }
 
   var html = '<div class="rf-today">';
 
-  // Left: Plan
+  // Left: Plan (editable)
   html += '<div class="rf-plan-panel">';
   html += '<div class="rf-panel-header">';
   html += '<h2 class="rf-panel-title">Today\'s Plan</h2>';
-  html += '<span class="rf-plan-count">' + planTasks.filter(function(t) { return !t.isComplete; }).length + ' remaining</span>';
+  html += '<span class="rf-plan-count">' + remaining.length + ' remaining';
+  if (totalStr) html += ' &middot; ' + esc(totalStr);
+  html += '</span>';
   html += '</div>';
   html += '<div class="rf-plan-list" id="planList">';
   if (planTasks.length === 0) {
     html += '<div class="rf-empty">Add tasks from the right panel to plan your day</div>';
   } else {
     for (var i = 0; i < planTasks.length; i++) {
-      html += buildPlanItem(planTasks[i], i);
+      html += buildPlanItem(planTasks[i], i, true);
     }
   }
   html += '</div>';
@@ -807,7 +920,6 @@ function buildTodayTab(planTasks, dailyTasks, scheduledToday, scheduledWeek, has
   }
   html += '</div>';
 
-  // Daily Note source
   html += '<div class="rf-source-list active" data-source="daily">';
   if (dailyTasks.length === 0) {
     html += '<div class="rf-empty">No tasks in today\'s daily note</div>';
@@ -818,7 +930,6 @@ function buildTodayTab(planTasks, dailyTasks, scheduledToday, scheduledWeek, has
   }
   html += '</div>';
 
-  // Scheduled Today (includes overdue)
   html += '<div class="rf-source-list" data-source="today">';
   if (scheduledToday.length === 0) {
     html += '<div class="rf-empty">No tasks scheduled for today</div>';
@@ -829,7 +940,6 @@ function buildTodayTab(planTasks, dailyTasks, scheduledToday, scheduledWeek, has
   }
   html += '</div>';
 
-  // This Week (future days only)
   html += '<div class="rf-source-list" data-source="week">';
   if (scheduledWeek.length === 0) {
     html += '<div class="rf-empty">No tasks scheduled this week</div>';
@@ -840,15 +950,14 @@ function buildTodayTab(planTasks, dailyTasks, scheduledToday, scheduledWeek, has
   }
   html += '</div>';
 
-  // ClickUp source (lazy loaded)
   if (hasClickUp) {
     html += '<div class="rf-source-list" data-source="clickup">';
     html += '<div class="rf-empty rf-clickup-loading">Loading ClickUp tasks...</div>';
     html += '</div>';
   }
 
-  html += '</div>'; // sources-panel
-  html += '</div>'; // rf-today
+  html += '</div>';
+  html += '</div>';
   return html;
 }
 
@@ -918,13 +1027,13 @@ function buildDashboardHTML(tab, data) {
 
   switch (tab) {
     case 'today':
-      html += buildTodayTab(data.planTasks, data.dailyTasks, data.scheduledToday, data.scheduledWeek, data.hasClickUp);
+      html += buildTodayTab(data.planTasks);
       break;
     case 'focus':
       html += buildFocusTab(data.planTasks, data.timerState);
       break;
     case 'plan':
-      html += buildPlaceholderTab('Plan');
+      html += buildPlanTab(data.planTasks, data.dailyTasks, data.scheduledToday, data.scheduledWeek, data.hasClickUp);
       break;
     case 'shutdown':
       html += buildPlaceholderTab('Shutdown');
@@ -1114,6 +1223,40 @@ function getInlineCSS() {
 '.rf-plan-item.is-dragging { opacity: 0.3; }\n' +
 '.rf-plan-item.drag-over-top { border-top: 2px solid var(--rf-accent); margin-top: -2px; }\n' +
 '.rf-plan-item.drag-over-bottom { border-bottom: 2px solid var(--rf-accent); margin-bottom: -2px; }\n' +
+
+/* ---- Time Estimate ---- */
+'.rf-time-btn {\n' +
+'  flex-shrink: 0; border: none; background: transparent;\n' +
+'  color: var(--rf-text-faint); cursor: pointer; padding: 2px 6px;\n' +
+'  font-size: 11px; border-radius: 3px; transition: all 0.15s;\n' +
+'  margin-left: auto; opacity: 0.5;\n' +
+'}\n' +
+'.rf-plan-item:hover .rf-time-btn { opacity: 1; }\n' +
+'.rf-time-btn:hover { background: var(--rf-border); color: var(--rf-text); }\n' +
+'.rf-time-label { font-weight: 600; color: var(--rf-accent); }\n' +
+'.rf-time-badge {\n' +
+'  flex-shrink: 0; font-size: 10px; font-weight: 600;\n' +
+'  color: var(--rf-text-muted); margin-left: auto; padding: 2px 6px;\n' +
+'}\n' +
+'.rf-time-picker {\n' +
+'  position: fixed; z-index: 200;\n' +
+'  background: var(--rf-bg-card); border: 1px solid var(--rf-border-strong);\n' +
+'  border-radius: var(--rf-radius-sm); box-shadow: 0 8px 24px color-mix(in srgb, black 30%, transparent);\n' +
+'  padding: 6px 0; min-width: 120px; max-height: 300px; overflow-y: auto;\n' +
+'}\n' +
+'.rf-time-option {\n' +
+'  display: block; width: 100%; padding: 6px 16px;\n' +
+'  border: none; background: transparent; color: var(--rf-text);\n' +
+'  font-size: 13px; cursor: pointer; text-align: left;\n' +
+'}\n' +
+'.rf-time-option:hover { background: var(--rf-accent-soft); color: var(--rf-accent); }\n' +
+'.rf-time-option.active { color: var(--rf-accent); font-weight: 600; }\n' +
+'.rf-time-option.clear { color: var(--rf-red); }\n' +
+
+/* ---- Today Overview ---- */
+'.rf-today-overview { padding: 0 16px; }\n' +
+'.rf-today-overview .rf-panel-header { padding: 16px 0 12px; border-bottom: 1px solid var(--rf-border); }\n' +
+'.rf-today-overview .rf-plan-list { padding: 8px 0; }\n' +
 
 /* ---- Sources Panel ---- */
 '.rf-sources-panel {\n' +
@@ -1332,14 +1475,13 @@ async function showReflect(tab) {
 
     if (note) {
       data.planTasks = getPlanTasks(note);
-      if (activeTab === 'today') {
+      if (activeTab === 'plan') {
         var cached = getCachedTasks(note, config);
         data.dailyTasks = cached.dailyTasks;
         data.scheduledToday = cached.scheduledToday;
         data.scheduledWeek = cached.scheduledWeek;
-      } else if (activeTab === 'focus') {
-        // Only need plan tasks + timer state (already loaded)
       }
+      // today and focus tabs only need planTasks (already loaded)
     }
 
     var bodyContent = buildDashboardHTML(activeTab, data);
@@ -1428,6 +1570,17 @@ async function onMessageFromHTMLView(actionType, data) {
           invalidateTaskCache();
           var config = getSettings();
           await showReflect(config.lastTab || 'today');
+        }
+        break;
+
+      case 'setTimeEstimate':
+        if (note && msg.lineIndex !== undefined) {
+          setTimeEstimate(note, parseInt(msg.lineIndex, 10), msg.estimate || '');
+          // Send back updated estimate without full re-render
+          await sendToHTMLWindow(WINDOW_ID, 'TIME_ESTIMATE_SET', {
+            lineIndex: parseInt(msg.lineIndex, 10),
+            estimate: msg.estimate || '',
+          });
         }
         break;
 
