@@ -1378,7 +1378,17 @@ async function onMessageFromHTMLView(actionType, data) {
           }
           addToPlan(note, planContent);
           invalidateTaskCache();
-          await showReflect('today');
+          // Get the newly inserted task's line index
+          var updatedPlan = getPlanTasks(note);
+          var newTask = updatedPlan[updatedPlan.length - 1];
+          var remaining = updatedPlan.filter(function(t) { return !t.isComplete; }).length;
+          await sendToHTMLWindow(WINDOW_ID, 'TASK_ADDED_TO_PLAN', {
+            content: planContent,
+            contentHTML: renderTaskContent(planContent),
+            lineIndex: newTask ? newTask.lineIndex : -1,
+            originalContent: msg.content,
+            remaining: remaining,
+          });
         }
         break;
 

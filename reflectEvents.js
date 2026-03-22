@@ -21,6 +21,9 @@ function onMessageFromPlugin(type, data) {
     case 'CLICKUP_TASKS':
       renderClickUpTasks(data.tasks || []);
       break;
+    case 'TASK_ADDED_TO_PLAN':
+      handleTaskAddedToPlan(data);
+      break;
     case 'SHOW_TOAST':
       showToast(data.message);
       break;
@@ -28,6 +31,73 @@ function onMessageFromPlugin(type, data) {
       window.location.reload();
       break;
   }
+}
+
+function handleTaskAddedToPlan(data) {
+  // 1. Add new item to plan list
+  var planList = document.getElementById('planList');
+  if (planList) {
+    // Remove empty state if present
+    var empty = planList.querySelector('.rf-empty');
+    if (empty) empty.remove();
+
+    var item = document.createElement('div');
+    item.className = 'rf-plan-item';
+    item.draggable = true;
+    item.dataset.lineIndex = data.lineIndex;
+    item.dataset.index = planList.querySelectorAll('.rf-plan-item').length;
+
+    var handle = document.createElement('span');
+    handle.className = 'rf-drag-handle';
+    handle.innerHTML = '<i class="fa-solid fa-grip-vertical"></i>';
+
+    var cb = document.createElement('span');
+    cb.className = 'rf-plan-cb checklist';
+    cb.dataset.action = 'togglePlan';
+    cb.dataset.lineIndex = data.lineIndex;
+    cb.innerHTML = '<i class="fa-regular fa-square"></i>';
+
+    var content = document.createElement('span');
+    content.className = 'rf-plan-content';
+    content.innerHTML = data.contentHTML;
+
+    item.appendChild(handle);
+    item.appendChild(cb);
+    item.appendChild(content);
+    planList.appendChild(item);
+
+    // Attach drag events to new item
+    item.addEventListener('dragstart', handleDragStart);
+    item.addEventListener('dragover', handleDragOver);
+    item.addEventListener('dragenter', handleDragEnter);
+    item.addEventListener('dragleave', handleDragLeave);
+    item.addEventListener('drop', handleDrop);
+    item.addEventListener('dragend', handleDragEnd);
+  }
+
+  // 2. Update remaining count
+  var countEl = document.querySelector('.rf-plan-count');
+  if (countEl && data.remaining !== undefined) {
+    countEl.textContent = data.remaining + ' remaining';
+  }
+
+  // 3. Mark source task as in-plan
+  var sourceTasks = document.querySelectorAll('.rf-source-task');
+  sourceTasks.forEach(function(el) {
+    if (el.dataset.content === data.originalContent) {
+      el.classList.add('in-plan');
+      // Replace + button with checkmark
+      var addBtn = el.querySelector('.rf-source-add');
+      if (addBtn) {
+        var check = document.createElement('span');
+        check.className = 'rf-source-added';
+        check.innerHTML = '<i class="fa-solid fa-check"></i>';
+        addBtn.replaceWith(check);
+      }
+    }
+  });
+
+  showToast('Added to plan');
 }
 
 // ============================================
