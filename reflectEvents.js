@@ -17,7 +17,6 @@ var dragSrcEl = null;
 // ============================================
 
 function onMessageFromPlugin(type, data) {
-  console.log('onMessageFromPlugin: type=' + type);
   switch (type) {
     case 'CLICKUP_TASKS':
       renderClickUpTasks(data.tasks || []);
@@ -44,7 +43,6 @@ function handleTaskAddedToPlan(data) {
   try {
   // 1. Add new item to plan list
   var planList = document.getElementById('planList');
-  console.log('handleTaskAddedToPlan: planList=' + (planList ? 'found, children=' + planList.children.length : 'NOT FOUND'));
   if (planList) {
     // Remove empty state if present
     var empty = planList.querySelector('.rf-empty');
@@ -55,7 +53,6 @@ function handleTaskAddedToPlan(data) {
     item.draggable = true;
     item.dataset.lineIndex = data.lineIndex;
     item.dataset.index = planList.querySelectorAll('.rf-plan-item').length;
-    console.log('handleTaskAddedToPlan: item created');
 
     var handle = document.createElement('span');
     handle.className = 'rf-drag-handle';
@@ -75,9 +72,7 @@ function handleTaskAddedToPlan(data) {
     content.className = 'rf-plan-content';
     // Use textContent as fallback, innerHTML for rich content
     if (data.contentHTML && data.contentHTML.indexOf('<') >= 0) {
-      console.log('handleTaskAddedToPlan: setting innerHTML, len=' + data.contentHTML.length);
       content.innerHTML = data.contentHTML;
-      console.log('handleTaskAddedToPlan: innerHTML set OK');
     } else {
       content.textContent = data.originalContent || '';
     }
@@ -103,7 +98,6 @@ function handleTaskAddedToPlan(data) {
     item.appendChild(content);
     item.appendChild(timeBtn);
     planList.appendChild(item);
-    console.log('handleTaskAddedToPlan: appended item, planList now has ' + planList.children.length + ' children');
 
     // Attach drag events to new item
     item.addEventListener('dragstart', handleDragStart);
@@ -119,7 +113,6 @@ function handleTaskAddedToPlan(data) {
 
   // 3. Mark source task as in-plan
   var sourceTasks = document.querySelectorAll('.rf-source-task');
-  console.log('handleTaskAddedToPlan: looking for originalContent="' + data.originalContent + '" among ' + sourceTasks.length + ' source tasks');
   var matched = 0;
   sourceTasks.forEach(function(el) {
     if (el.dataset.content === data.originalContent) {
@@ -135,7 +128,6 @@ function handleTaskAddedToPlan(data) {
       }
     }
   });
-  console.log('handleTaskAddedToPlan: matched ' + matched + ' source tasks');
 
   showToast('Added to plan');
   } catch (err) {
@@ -156,12 +148,9 @@ function handlePlanReordered(data) {
 }
 
 function handleTimeEstimateSet(data) {
-  console.log('handleTimeEstimateSet: lineIndex=' + data.lineIndex + ' estimate=' + data.estimate);
   var item = document.querySelector('.rf-plan-item[data-line-index="' + data.lineIndex + '"]');
-  console.log('handleTimeEstimateSet: item=' + (item ? 'found' : 'NOT FOUND'));
   if (!item) return;
   var btn = item.querySelector('.rf-time-btn');
-  console.log('handleTimeEstimateSet: btn=' + (btn ? 'found' : 'NOT FOUND'));
   if (btn) {
     if (data.estimate) {
       btn.innerHTML = '<span class="rf-time-label">' + escHTML(data.estimate) + '</span>';
