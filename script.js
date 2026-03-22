@@ -1451,6 +1451,9 @@ function saveShutdownData(note, workedOn, didntGetTo, highlightsText) {
     lines.push({ content: 'Nothing tracked today', type: 'list' });
   }
 
+  // Empty line before next section
+  lines.push({ content: '', type: 'empty' });
+
   // ### Didn't get to
   lines.push({ content: "Didn't get to", type: 'title', level: 3 });
   for (var d = 0; d < didntGetTo.length; d++) {
@@ -1459,6 +1462,9 @@ function saveShutdownData(note, workedOn, didntGetTo, highlightsText) {
   if (didntGetTo.length === 0) {
     lines.push({ content: 'Everything done!', type: 'list' });
   }
+
+  // Empty line before next section
+  lines.push({ content: '', type: 'empty' });
 
   // ### Highlights
   lines.push({ content: 'Highlights', type: 'title', level: 3 });
@@ -1473,6 +1479,9 @@ function saveShutdownData(note, workedOn, didntGetTo, highlightsText) {
       }
     }
   }
+
+  // Trailing empty line after the whole section
+  lines.push({ content: '', type: 'empty' });
 
   // Insert all lines
   for (var li = 0; li < lines.length; li++) {
