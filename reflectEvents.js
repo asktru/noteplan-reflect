@@ -102,6 +102,7 @@ function renderClickUpTasks(tasks) {
     var taskEl = document.createElement('div');
     taskEl.className = 'rf-source-task';
     taskEl.dataset.content = t.content || '';
+    if (t.clickupId) taskEl.dataset.clickupId = t.clickupId;
 
     var mainDiv = document.createElement('div');
     mainDiv.className = 'rf-source-task-main';
@@ -131,6 +132,7 @@ function renderClickUpTasks(tasks) {
     addBtn.className = 'rf-source-add';
     addBtn.dataset.action = 'addToPlan';
     addBtn.dataset.content = t.content || '';
+    if (t.clickupId) addBtn.dataset.clickupId = t.clickupId;
     addBtn.title = 'Add to plan (S)';
     var addIcon = document.createElement('i');
     addIcon.className = 'fa-solid fa-plus';
