@@ -152,10 +152,17 @@ function handleTimeEstimateSet(data) {
   if (!item) return;
   var btn = item.querySelector('.rf-time-btn');
   if (btn) {
+    // Clear existing content using DOM methods (innerHTML fails in NotePlan WebView)
+    while (btn.firstChild) btn.removeChild(btn.firstChild);
     if (data.estimate) {
-      btn.innerHTML = '<span class="rf-time-label">' + escHTML(data.estimate) + '</span>';
+      var label = document.createElement('span');
+      label.className = 'rf-time-label';
+      label.textContent = data.estimate;
+      btn.appendChild(label);
     } else {
-      btn.innerHTML = '<i class="fa-regular fa-clock"></i>';
+      var icon = document.createElement('i');
+      icon.className = 'fa-regular fa-clock';
+      btn.appendChild(icon);
     }
   }
   // Update total in header
