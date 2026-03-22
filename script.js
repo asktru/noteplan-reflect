@@ -440,31 +440,27 @@ async function fetchClickUpTasks(apiToken, teamId) {
   if (!apiToken || !teamId) return [];
   try {
     // Check if fetch is available
-    if (typeof fetch === 'undefined') {
-      console.log('Reflect: fetch() not available in this environment');
-      return [];
-    }
-
-    // NotePlan's fetch() may return non-standard response objects.
-    // Try multiple patterns to handle the response.
-    async function doFetch(url) {
-      var resp = await fetch(url, { method: 'GET', headers: { 'Authorization': apiToken } });
-      // Standard fetch Response
-      if (resp && typeof resp.text === 'function') {
-        var body = await resp.text();
-        console.log('Reflect: fetch response type=standard, status=' + resp.status + ', bodyLen=' + (body || '').length);
-        return body;
-      }
-      // NotePlan might return the body directly as a string
-      if (typeof resp === 'string') {
-        console.log('Reflect: fetch returned string directly, len=' + resp.length);
-        return resp;
-      }
-      // Or an object with a body/data property
-      if (resp && resp.body) return typeof resp.body === 'string' ? resp.body : JSON.stringify(resp.body);
-      if (resp && resp.data) return typeof resp.data === 'string' ? resp.data : JSON.stringify(resp.data);
-      console.log('Reflect: fetch returned unknown type: ' + typeof resp + ' keys=' + (resp ? Object.keys(resp).join(',') : 'null'));
-      return JSON.stringify(resp);
+    // Use XMLHttpRequest instead of fetch() to avoid NotePlan's
+    // built-in loading overlay that displays the raw URL.
+    function doFetch(url) {
+      return new Promise(function(resolve, reject) {
+        var xhr = new XMLHttpRequest();
+        xhr.open('GET', url, true);
+        xhr.setRequestHeader('Authorization', apiToken);
+        xhr.onload = function() {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve(xhr.responseText);
+          } else {
+            console.log('Reflect: XHR error ' + xhr.status + ': ' + xhr.responseText.substring(0, 200));
+            reject(new Error('HTTP ' + xhr.status));
+          }
+        };
+        xhr.onerror = function() {
+          console.log('Reflect: XHR network error');
+          reject(new Error('Network error'));
+        };
+        xhr.send();
+      });
     }
 
     // Step 1: Get authorized user to find their member ID
@@ -1443,10 +1439,8 @@ async function onMessageFromHTMLView(actionType, data) {
         break;
 
       case 'fetchClickUp':
-        CommandBar.showLoading(true, 'Loading ClickUp tasks...');
         var clickConf = getSettings();
         var tasks = await fetchClickUpTasks(clickConf.clickupApiToken, clickConf.clickupTeamId);
-        CommandBar.showLoading(false);
         await sendToHTMLWindow(WINDOW_ID, 'CLICKUP_TASKS', { tasks: tasks });
         break;
 
