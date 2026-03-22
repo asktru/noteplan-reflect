@@ -1715,50 +1715,43 @@ async function onMessageFromHTMLView(actionType, data) {
         break;
 
       case 'addCalendarToPlan':
-        if (note && msg.calendarLink) {
-          var calPlanContent = msg.calendarLink;
-          if (msg.durationStr) {
-            calPlanContent += ' *- ' + msg.durationStr + '*';
-          }
-          addToPlan(note, calPlanContent);
-          invalidateTaskCache();
-          var calUpdatedPlan = getPlanTasks(note);
-          var calNewTask = calUpdatedPlan[calUpdatedPlan.length - 1];
-          var calRemaining = calUpdatedPlan.filter(function(t) { return !t.isComplete; }).length;
-          await sendToHTMLWindow(WINDOW_ID, 'TASK_ADDED_TO_PLAN', {
-            content: calPlanContent,
-            contentHTML: renderTaskContent(calPlanContent),
-            lineIndex: calNewTask ? calNewTask.lineIndex : -1,
-            originalContent: msg.content,
-            remaining: calRemaining,
-            durationStr: msg.durationStr || '',
-            isCalendarEvent: true,
-          });
-        }
-        break;
-
       case 'addToPlan':
       case 'addToPlanWithDuration':
-        if (note && msg.content) {
-          var planContent = msg.content;
-          if (msg.clickupId) {
-            planContent += ' [ClickUp](https://app.clickup.com/t/' + msg.clickupId + ')';
+        if (note) {
+          // Build the plan content from the message
+          var planContent = '';
+          if (actionType === 'addCalendarToPlan' && msg.calendarLink) {
+            planContent = msg.calendarLink;
+          } else if (msg.content) {
+            planContent = msg.content;
+            if (msg.clickupId) {
+              planContent += ' [ClickUp](https://app.clickup.com/t/' + msg.clickupId + ')';
+            }
           }
+          if (!planContent) break;
           if (msg.durationStr) {
             planContent += ' *- ' + msg.durationStr + '*';
           }
+
           addToPlan(note, planContent);
           invalidateTaskCache();
+
+          // Read back the new task
           var updatedPlan = getPlanTasks(note);
           var newTask = updatedPlan[updatedPlan.length - 1];
           var remaining = updatedPlan.filter(function(t) { return !t.isComplete; }).length;
+
+          // Render without time estimate (it's shown separately in the time button)
+          var parsedContent = extractTimeEstimate(planContent);
+          var contentHTML = renderTaskContent(parsedContent.content);
+
           await sendToHTMLWindow(WINDOW_ID, 'TASK_ADDED_TO_PLAN', {
             content: planContent,
-            contentHTML: renderTaskContent(planContent),
+            contentHTML: contentHTML,
             lineIndex: newTask ? newTask.lineIndex : -1,
-            originalContent: msg.content,
+            originalContent: msg.content || '',
             remaining: remaining,
-            durationStr: msg.durationStr || '',
+            durationStr: msg.durationStr || parsedContent.estimate || '',
           });
         }
         break;

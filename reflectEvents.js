@@ -17,6 +17,7 @@ var dragSrcEl = null;
 // ============================================
 
 function onMessageFromPlugin(type, data) {
+  console.log('onMessageFromPlugin: type=' + type);
   switch (type) {
     case 'CLICKUP_TASKS':
       renderClickUpTasks(data.tasks || []);
