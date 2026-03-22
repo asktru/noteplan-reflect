@@ -215,7 +215,7 @@ function ensureSection(note, subHeading) {
   // Check if # Reflect exists
   var reflectLine = findHeadingLine(note, REFLECT_HEADING, 1);
   if (reflectLine === -1) {
-    // Append # Reflect at end with trailing empty line
+    // Add empty line before # Reflect for visual separation
     note.appendParagraph('', 'empty');
     note.appendParagraph(REFLECT_HEADING, 'title');
     reflectLine = note.paragraphs.length - 1;
@@ -227,18 +227,16 @@ function ensureSection(note, subHeading) {
     return subLine;
   }
 
-  // Need to create ## subHeading — find where to insert it
+  // Need to create ## subHeading
   var reflectRange = findSectionRange(note, REFLECT_HEADING, 1);
   if (!reflectRange) {
     note.appendParagraph(subHeading, 'title');
-    note.appendParagraph('', 'empty');
-    return note.paragraphs.length - 2;
+    return note.paragraphs.length - 1;
   }
 
-  // Insert at end of Reflect section, with trailing empty line
+  // Insert at end of Reflect section (no trailing empty line — content follows directly)
   var insertAt = reflectRange.end;
   note.insertHeading(subHeading, insertAt, 2);
-  note.insertParagraph('', insertAt + 1, 'empty');
   return insertAt;
 }
 
@@ -1244,13 +1242,33 @@ function buildPlanTab(data) {
 
 function buildFocusTab(planTasks, timerState) {
   var html = '<div class="rf-focus">';
+  var isTimerActive = timerState.startTime && timerState.taskContent;
 
-  // Find topmost incomplete task
+  // If timer is active, show the task being focused on
+  // Otherwise, show the topmost incomplete plan task
   var currentTask = null;
-  for (var i = 0; i < planTasks.length; i++) {
-    if (!planTasks[i].isComplete) {
-      currentTask = planTasks[i];
-      break;
+  var currentTaskContent = '';
+  if (isTimerActive) {
+    currentTaskContent = timerState.taskContent;
+    // Find the matching plan task for its lineIndex
+    for (var ti = 0; ti < planTasks.length; ti++) {
+      var tiParsed = extractTimeEstimate(planTasks[ti].content);
+      if (tiParsed.content === currentTaskContent) {
+        currentTask = planTasks[ti];
+        break;
+      }
+    }
+    // Even if not found in plan, still show the focus session
+    if (!currentTask) {
+      currentTask = { content: currentTaskContent, lineIndex: -1, isComplete: false };
+    }
+  } else {
+    for (var i = 0; i < planTasks.length; i++) {
+      if (!planTasks[i].isComplete) {
+        currentTask = planTasks[i];
+        currentTaskContent = extractTimeEstimate(planTasks[i].content).content;
+        break;
+      }
     }
   }
 
@@ -1258,18 +1276,18 @@ function buildFocusTab(planTasks, timerState) {
     html += '<div class="rf-focus-empty">';
     html += '<i class="fa-solid fa-check-double rf-focus-empty-icon"></i>';
     html += '<p>No tasks in your plan yet.</p>';
-    html += '<p class="rf-text-muted">Add tasks in the Today tab first.</p>';
+    html += '<p class="rf-text-muted">Add tasks in the Plan tab first.</p>';
     html += '</div>';
     html += '</div>';
     return html;
   }
 
-  var isTimerActive = timerState.startTime && timerState.taskContent;
+  var displayContent = isTimerActive ? currentTaskContent : extractTimeEstimate(currentTask.content).content;
   var startTimeAttr = isTimerActive ? ' data-timer-start="' + timerState.startTime + '"' : '';
 
   html += '<div class="rf-focus-card"' + startTimeAttr + '>';
-  html += '<div class="rf-focus-label">Currently focusing on</div>';
-  html += '<div class="rf-focus-task">' + renderMarkdown(currentTask.content) + '</div>';
+  html += '<div class="rf-focus-label">' + (isTimerActive ? 'Currently focusing on' : 'Next up') + '</div>';
+  html += '<div class="rf-focus-task">' + renderTaskContent(displayContent) + '</div>';
 
   html += '<div class="rf-focus-timer" id="focusTimer">' + (isTimerActive ? '--:--' : '00:00') + '</div>';
 
@@ -1277,7 +1295,7 @@ function buildFocusTab(planTasks, timerState) {
   if (isTimerActive) {
     html += '<button class="rf-focus-btn stop" data-action="stopFocus"><i class="fa-solid fa-stop"></i> Stop</button>';
   } else {
-    html += '<button class="rf-focus-btn start" data-action="startFocus" data-content="' + esc(currentTask.content) + '"><i class="fa-solid fa-play"></i> Start Focus</button>';
+    html += '<button class="rf-focus-btn start" data-action="startFocus" data-content="' + esc(displayContent) + '"><i class="fa-solid fa-play"></i> Start Focus</button>';
   }
   html += '</div>';
 
