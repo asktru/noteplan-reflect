@@ -856,7 +856,7 @@ function renderTaskContent(content) {
 function buildNav(activeTab) {
   var tabs = [
     { id: 'today', icon: 'fa-solid fa-calendar-day', label: 'Today' },
-    { id: 'focus', icon: 'fa-solid fa-crosshairs', label: 'Focus' },
+    { id: 'focus', icon: 'fa-solid fa-mug-hot', label: 'Focus' },
     { id: 'plan', icon: 'fa-solid fa-list-check', label: 'Plan' },
     { id: 'shutdown', icon: 'fa-solid fa-moon', label: 'Shutdown' },
     { id: 'highlights', icon: 'fa-solid fa-pen-fancy', label: 'Highlights' },
@@ -1056,7 +1056,7 @@ function buildTodayPlanItem(task, index, totalCount, focusMap, timerState) {
   if (!isDone) {
     html += '<div class="rf-today-item-actions">';
     if (!isFocusing) {
-      html += '<button class="rf-today-act" data-action="startFocusFromToday" data-content="' + esc(parsed.content) + '" title="Focus"><i class="fa-solid fa-crosshairs"></i></button>';
+      html += '<button class="rf-today-act" data-action="startFocusFromToday" data-content="' + esc(parsed.content) + '" title="Focus"><i class="fa-solid fa-mug-hot"></i></button>';
     } else {
       html += '<button class="rf-today-act focusing" data-action="stopFocusFromToday" title="Stop Focus"><i class="fa-solid fa-stop"></i></button>';
     }
