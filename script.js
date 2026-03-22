@@ -1443,8 +1443,10 @@ async function onMessageFromHTMLView(actionType, data) {
         break;
 
       case 'fetchClickUp':
+        CommandBar.showLoading(true, 'Loading ClickUp tasks...');
         var clickConf = getSettings();
         var tasks = await fetchClickUpTasks(clickConf.clickupApiToken, clickConf.clickupTeamId);
+        CommandBar.showLoading(false);
         await sendToHTMLWindow(WINDOW_ID, 'CLICKUP_TASKS', { tasks: tasks });
         break;
 
