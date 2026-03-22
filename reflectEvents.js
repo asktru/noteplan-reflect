@@ -24,6 +24,9 @@ function onMessageFromPlugin(type, data) {
     case 'TASK_ADDED_TO_PLAN':
       handleTaskAddedToPlan(data);
       break;
+    case 'PLAN_REORDERED':
+      handlePlanReordered(data);
+      break;
     case 'SHOW_TOAST':
       showToast(data.message);
       break;
@@ -98,6 +101,18 @@ function handleTaskAddedToPlan(data) {
   });
 
   showToast('Added to plan');
+}
+
+function handlePlanReordered(data) {
+  // Update data-line-index on each plan item to match new note state
+  var items = document.querySelectorAll('#planList .rf-plan-item');
+  var indices = data.lineIndices || [];
+  for (var i = 0; i < items.length && i < indices.length; i++) {
+    items[i].dataset.lineIndex = indices[i];
+    // Also update the checkbox's data-line-index
+    var cb = items[i].querySelector('.rf-plan-cb');
+    if (cb) cb.dataset.lineIndex = indices[i];
+  }
 }
 
 // ============================================

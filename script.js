@@ -1415,7 +1415,10 @@ async function onMessageFromHTMLView(actionType, data) {
         if (note && msg.orderedLineIndices) {
           reorderPlanTasks(note, msg.orderedLineIndices);
           invalidateTaskCache();
-          await showReflect('today');
+          // Send back updated line indices — DOM is already in correct order
+          var reorderedPlan = getPlanTasks(note);
+          var newIndices = reorderedPlan.map(function(t) { return t.lineIndex; });
+          await sendToHTMLWindow(WINDOW_ID, 'PLAN_REORDERED', { lineIndices: newIndices });
         }
         break;
 
