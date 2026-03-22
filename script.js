@@ -256,8 +256,15 @@ function getPlanTasks(note) {
     var t = p.type;
     if (t === 'checklist' || t === 'checklistDone' || t === 'checklistCancelled' ||
         t === 'open' || t === 'done' || t === 'cancelled') {
+      var taskContent = p.content;
+      // Log calendar link content for debugging
+      if (taskContent.indexOf('!') >= 0 || taskContent.indexOf('📅') >= 0) {
+        console.log('Reflect: Plan task content: [' + taskContent + ']');
+        console.log('Reflect: Plan task rawContent: [' + p.rawContent + ']');
+      }
       tasks.push({
-        content: p.content,
+        content: taskContent,
+        rawContent: p.rawContent || taskContent,
         type: t,
         lineIndex: p.lineIndex,
         indentLevel: p.indentLevel || 0,
@@ -773,21 +780,23 @@ function renderMarkdown(str) {
   if (!str) return '';
 
   // Calendar event deeplink: process BEFORE esc()
+  if (str.indexOf('!') >= 0) console.log('Reflect renderMarkdown input: [' + str.substring(0, 100) + ']');
   var calParsed = parseCalendarLink(str);
+  if (calParsed.found) console.log('Reflect parseCalendarLink: found title=' + calParsed.title + ' time=' + calParsed.time);
   var calBadgeHTML = '';
   if (calParsed.found) {
     calBadgeHTML = '<span class="rf-cal-badge" style="--cal-color: ' + esc(calParsed.color) + '">' +
       '<i class="fa-regular fa-calendar"></i> ' + esc(calParsed.title) +
       ' <span class="rf-cal-time">' + esc(calParsed.time) + '</span></span>';
     // Replace the link with a placeholder, process the rest normally
-    str = calParsed.before + '\x00CALBADGE\x00' + calParsed.after;
+    str = calParsed.before + '__CALBADGE__' + calParsed.after;
   }
 
   var s = esc(str);
 
   // Restore calendar badge
   if (calBadgeHTML) {
-    s = s.replace('\x00CALBADGE\x00', calBadgeHTML);
+    s = s.replace('__CALBADGE__', calBadgeHTML);
   }
 
   // Bold
