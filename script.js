@@ -782,7 +782,10 @@ function renderMarkdown(str) {
   // Calendar event deeplink: process BEFORE esc()
   if (str.indexOf('!') >= 0) console.log('Reflect renderMarkdown input: [' + str.substring(0, 100) + ']');
   var calParsed = parseCalendarLink(str);
-  if (calParsed.found) console.log('Reflect parseCalendarLink: found title=' + calParsed.title + ' time=' + calParsed.time);
+  if (calParsed.found) {
+    console.log('Reflect parseCalendarLink: found title=' + calParsed.title + ' time=' + calParsed.time);
+    console.log('Reflect: str after replace: [' + str.substring(0, 60) + ']');
+  }
   var calBadgeHTML = '';
   if (calParsed.found) {
     calBadgeHTML = '<span class="rf-cal-badge" style="--cal-color: ' + esc(calParsed.color) + '">' +
