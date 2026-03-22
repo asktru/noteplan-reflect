@@ -1,0 +1,94 @@
+{
+  "macOS.minVersion": "10.13.0",
+  "noteplan.minAppVersion": "3.9.0",
+  "plugin.id": "asktru.Reflect",
+  "plugin.name": "Reflect",
+  "plugin.description": "Sunsama-like daily planning: plan your day, focus on tasks, track time.",
+  "plugin.icon": "🪞",
+  "plugin.author": "asktru",
+  "plugin.version": "1.0.0",
+  "plugin.lastUpdateInfo": "Initial release",
+  "plugin.script": "script.js",
+  "plugin.isRemote": "false",
+  "plugin.dependsOn": [
+    {
+      "id": "np.Shared",
+      "minVersion": "1.0.0"
+    }
+  ],
+  "plugin.requiredFiles": [
+    "reflectEvents.js"
+  ],
+  "plugin.requiredSharedFiles": [
+    "fontawesome.css",
+    "regular.min.flat4NP.css",
+    "solid.min.flat4NP.css",
+    "fa-regular-400.woff2",
+    "fa-solid-900.woff2",
+    "pluginToHTMLCommsBridge.js"
+  ],
+  "plugin.settings": [
+    {
+      "type": "heading",
+      "title": "Reflect Settings"
+    },
+    {
+      "key": "clickupApiToken",
+      "title": "ClickUp API Token",
+      "description": "Personal API token for ClickUp integration. Leave blank to disable.",
+      "type": "string",
+      "default": "",
+      "required": false
+    },
+    {
+      "key": "clickupTeamId",
+      "title": "ClickUp Team/Workspace ID",
+      "description": "Your ClickUp workspace ID for fetching tasks.",
+      "type": "string",
+      "default": "",
+      "required": false
+    },
+    {
+      "key": "timerState",
+      "title": "Timer State",
+      "description": "Internal. Stores active timer state.",
+      "type": "hidden",
+      "default": "{}",
+      "required": false
+    },
+    {
+      "key": "lastTab",
+      "title": "Last Active Tab",
+      "description": "Internal. Remembers the last active tab.",
+      "type": "hidden",
+      "default": "today",
+      "required": false
+    }
+  ],
+  "plugin.commands": [
+    {
+      "name": "Reflect",
+      "alias": ["reflect", "daily plan", "plan", "focus"],
+      "description": "Open the Reflect daily planning dashboard",
+      "jsFunction": "showReflect",
+      "sidebarView": {
+        "windowID": "asktru.Reflect.dashboard",
+        "title": "Reflect",
+        "icon": "sun.max",
+        "iconColor": "#F97316"
+      }
+    },
+    {
+      "name": "onMessageFromHTMLView",
+      "description": "Callback for HTML window messages",
+      "jsFunction": "onMessageFromHTMLView",
+      "hidden": true
+    },
+    {
+      "name": "Refresh Reflect",
+      "description": "Refresh the Reflect dashboard",
+      "jsFunction": "refreshReflect",
+      "hidden": true
+    }
+  ]
+}
