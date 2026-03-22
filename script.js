@@ -601,7 +601,7 @@ function startFocusSession(note, taskContent) {
   if (insertAt < 0) return;
 
   var timeStr = getTimeStr();
-  var logEntry = timeStr + ' *- started focus session for:* ' + taskContent;
+  var logEntry = timeStr + ' *focusing on:* ' + taskContent;
   note.insertParagraph(logEntry, insertAt, 'list');
 
   // Save timer state
@@ -632,7 +632,7 @@ function stopFocusSession(note, focusNotes) {
     insertAt++; // adjust for the line we just inserted
   }
 
-  var logEntry = timeStr + ' *- stopped focus session for:* ' + timer.taskContent + ' (' + duration + ')';
+  var logEntry = timeStr + ' *done focusing on:* ' + timer.taskContent + ' (' + duration + ')';
   note.insertParagraph(logEntry, insertAt, 'list');
 
   // Clear timer state
