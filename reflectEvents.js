@@ -147,13 +147,16 @@ function renderClickUpTasks(tasks) {
 
 function handleAddToPlan(el) {
   var content = el.dataset.content;
+  var clickupId = el.dataset.clickupId || '';
   if (!content) {
-    // Try parent source-task element
     var task = el.closest('.rf-source-task');
-    if (task) content = task.dataset.content;
+    if (task) {
+      content = task.dataset.content;
+      clickupId = task.dataset.clickupId || '';
+    }
   }
   if (content) {
-    sendMessageToPlugin('addToPlan', JSON.stringify({ content: content }));
+    sendMessageToPlugin('addToPlan', JSON.stringify({ content: content, clickupId: clickupId }));
   }
 }
 
@@ -170,8 +173,9 @@ function handleKeyboardShortcut(e) {
   if (hoveredTask) {
     e.preventDefault();
     var content = hoveredTask.dataset.content;
+    var clickupId = hoveredTask.dataset.clickupId || '';
     if (content) {
-      sendMessageToPlugin('addToPlan', JSON.stringify({ content: content }));
+      sendMessageToPlugin('addToPlan', JSON.stringify({ content: content, clickupId: clickupId }));
       showToast('Added to plan');
     }
   }

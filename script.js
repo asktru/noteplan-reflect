@@ -746,14 +746,15 @@ function buildSourceTask(task, planContentSet) {
     meta += '<span class="' + dateClass + '"><i class="fa-regular fa-calendar"></i> ' + esc(task.scheduledDate) + '</span>';
   }
 
+  var clickupAttr = task.clickupId ? ' data-clickup-id="' + esc(task.clickupId) + '"' : '';
   var taskClass = 'rf-source-task' + (isInPlan ? ' in-plan' : '');
-  var html = '<div class="' + taskClass + '" data-content="' + esc(task.content) + '">';
+  var html = '<div class="' + taskClass + '" data-content="' + esc(task.content) + '"' + clickupAttr + '>';
 
   // "+" button on the left (where status circle would be)
   if (isInPlan) {
     html += '<span class="rf-source-added"><i class="fa-solid fa-check"></i></span>';
   } else {
-    html += '<button class="rf-source-add" data-action="addToPlan" data-content="' + esc(task.content) + '" title="Add to plan (S)">';
+    html += '<button class="rf-source-add" data-action="addToPlan" data-content="' + esc(task.content) + '"' + clickupAttr + ' title="Add to plan (S)">';
     html += '<i class="fa-solid fa-plus"></i>';
     html += '</button>';
   }
@@ -1388,7 +1389,11 @@ async function onMessageFromHTMLView(actionType, data) {
 
       case 'addToPlan':
         if (note && msg.content) {
-          addToPlan(note, msg.content);
+          var planContent = msg.content;
+          if (msg.clickupId) {
+            planContent += ' [ClickUp](https://app.clickup.com/t/' + msg.clickupId + ')';
+          }
+          addToPlan(note, planContent);
           invalidateTaskCache();
           await showReflect('today');
         }
