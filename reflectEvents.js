@@ -705,6 +705,10 @@ document.addEventListener('DOMContentLoaded', function() {
       case 'stopFocusFromToday':
         sendMessageToPlugin('stopFocusFromToday', JSON.stringify({}));
         break;
+      case 'saveShutdown':
+        var highlightsEl = document.getElementById('shutdownHighlights');
+        sendMessageToPlugin('saveShutdown', JSON.stringify({ highlights: highlightsEl ? highlightsEl.value : '' }));
+        break;
       case 'movePlanUp':
       case 'movePlanDown':
         sendMessageToPlugin(action, JSON.stringify({ lineIndex: target.dataset.lineIndex }));

@@ -1336,6 +1336,218 @@ function buildFocusTab(planTasks, timerState, focusMap) {
   return html;
 }
 
+/**
+ * Get unique focused-on tasks from the Focus section (with total time).
+ */
+function getWorkedOnTasks(focusMap, planTasks) {
+  // Start with all tasks from focusMap (these were focused on)
+  var worked = [];
+  var seen = {};
+  var keys = Object.keys(focusMap);
+  for (var i = 0; i < keys.length; i++) {
+    var content = keys[i];
+    seen[content] = true;
+    worked.push({ content: content, minutes: focusMap[content] });
+  }
+  // Also include completed plan tasks not already in focusMap
+  for (var j = 0; j < planTasks.length; j++) {
+    if (planTasks[j].isComplete) {
+      var parsed = extractTimeEstimate(planTasks[j].content);
+      if (!seen[parsed.content]) {
+        seen[parsed.content] = true;
+        worked.push({ content: parsed.content, minutes: 0 });
+      }
+    }
+  }
+  return worked;
+}
+
+/**
+ * Get tasks from Plan that were NOT focused on and NOT completed/cancelled.
+ */
+function getDidntGetToTasks(focusMap, planTasks) {
+  var result = [];
+  for (var i = 0; i < planTasks.length; i++) {
+    if (planTasks[i].isComplete) continue;
+    var parsed = extractTimeEstimate(planTasks[i].content);
+    if (!focusMap[parsed.content]) {
+      result.push({ content: parsed.content });
+    }
+  }
+  return result;
+}
+
+/**
+ * Read existing highlights text from ## Highlights section in daily note.
+ * Returns the raw text lines under ### Highlights subheading.
+ */
+function getExistingHighlightsText(note) {
+  var highlightsLine = findHeadingLine(note, 'Highlights', 2);
+  if (highlightsLine < 0) return '';
+
+  var range = findSectionRange(note, 'Highlights', 2);
+  if (!range) return '';
+
+  // Find ### Highlights subheading within ## Highlights
+  var paras = note.paragraphs;
+  var textStart = -1;
+  for (var i = range.start; i < range.end; i++) {
+    if (paras[i].type === 'title' && paras[i].headingLevel === 3 && paras[i].content.trim() === 'Highlights') {
+      textStart = i + 1;
+      break;
+    }
+  }
+  if (textStart < 0) return '';
+
+  // Find end of ### Highlights (next heading or section end)
+  var textEnd = range.end;
+  for (var j = textStart; j < range.end; j++) {
+    if (paras[j].type === 'title') {
+      textEnd = j;
+      break;
+    }
+  }
+
+  var lines = [];
+  for (var k = textStart; k < textEnd; k++) {
+    var p = paras[k];
+    if (p.type === 'empty') continue;
+    // Strip leading "- " from list items for the textarea
+    var line = p.content || '';
+    lines.push(line);
+  }
+  return lines.join('\n');
+}
+
+/**
+ * Save shutdown data to the daily note under ## Highlights.
+ * Creates/overwrites the section with Worked on, Didn't get to, and Highlights.
+ */
+function saveShutdownData(note, workedOn, didntGetTo, highlightsText) {
+  ensureSection(note, 'Highlights');
+
+  var range = findSectionRange(note, 'Highlights', 2);
+  if (!range) return;
+
+  // Remove existing content in ## Highlights (keep the heading)
+  var paras = note.paragraphs;
+  for (var r = range.end - 1; r >= range.start; r--) {
+    note.removeParagraphAtIndex(r);
+  }
+
+  // Re-read the heading line after removal
+  var insertAt = findHeadingLine(note, 'Highlights', 2) + 1;
+
+  // Build content lines
+  var lines = [];
+
+  // ### Worked on
+  lines.push({ content: 'Worked on', type: 'title', level: 3 });
+  for (var w = 0; w < workedOn.length; w++) {
+    var timeStr = workedOn[w].minutes > 0 ? ' *(' + formatMinutes(workedOn[w].minutes) + ')*' : '';
+    lines.push({ content: workedOn[w].content + timeStr, type: 'list' });
+  }
+  if (workedOn.length === 0) {
+    lines.push({ content: 'Nothing tracked today', type: 'list' });
+  }
+
+  // ### Didn't get to
+  lines.push({ content: "Didn't get to", type: 'title', level: 3 });
+  for (var d = 0; d < didntGetTo.length; d++) {
+    lines.push({ content: didntGetTo[d].content, type: 'list' });
+  }
+  if (didntGetTo.length === 0) {
+    lines.push({ content: 'Everything done!', type: 'list' });
+  }
+
+  // ### Highlights
+  lines.push({ content: 'Highlights', type: 'title', level: 3 });
+  if (highlightsText && highlightsText.trim()) {
+    var hLines = highlightsText.trim().split('\n');
+    for (var h = 0; h < hLines.length; h++) {
+      var hl = hLines[h].trim();
+      if (hl) {
+        // Strip leading "- " if user typed it
+        if (hl.startsWith('- ')) hl = hl.substring(2);
+        lines.push({ content: hl, type: 'list' });
+      }
+    }
+  }
+
+  // Insert all lines
+  for (var li = 0; li < lines.length; li++) {
+    var line = lines[li];
+    if (line.type === 'title') {
+      note.insertHeading(line.content, insertAt, line.level);
+    } else {
+      note.insertParagraph(line.content, insertAt, line.type);
+    }
+    insertAt++;
+  }
+}
+
+function buildShutdownTab(workedOn, didntGetTo, existingHighlights) {
+  var html = '<div class="rf-shutdown">';
+
+  html += '<div class="rf-shutdown-header">';
+  html += '<h2 class="rf-panel-title"><i class="fa-solid fa-moon"></i> Daily Shutdown</h2>';
+  html += '<p class="rf-text-muted">Review your day and capture your thoughts</p>';
+  html += '</div>';
+
+  // Worked on
+  html += '<div class="rf-shutdown-section">';
+  html += '<h3 class="rf-shutdown-section-title"><i class="fa-solid fa-check-circle"></i> Worked on</h3>';
+  if (workedOn.length === 0) {
+    html += '<p class="rf-empty">No focus sessions recorded today</p>';
+  } else {
+    html += '<div class="rf-shutdown-list">';
+    for (var w = 0; w < workedOn.length; w++) {
+      var wContent = renderTaskContent(workedOn[w].content);
+      var wTime = workedOn[w].minutes > 0 ? '<span class="rf-shutdown-time">' + esc(formatMinutes(workedOn[w].minutes)) + '</span>' : '';
+      html += '<div class="rf-shutdown-item done">';
+      html += '<i class="fa-solid fa-check"></i>';
+      html += '<span class="rf-shutdown-item-content">' + wContent + '</span>';
+      html += wTime;
+      html += '</div>';
+    }
+    html += '</div>';
+  }
+  html += '</div>';
+
+  // Didn't get to
+  html += '<div class="rf-shutdown-section">';
+  html += '<h3 class="rf-shutdown-section-title"><i class="fa-solid fa-arrow-right"></i> Didn\'t get to</h3>';
+  if (didntGetTo.length === 0) {
+    html += '<p class="rf-shutdown-congrats"><i class="fa-solid fa-party-horn"></i> Everything done!</p>';
+  } else {
+    html += '<div class="rf-shutdown-list">';
+    for (var d = 0; d < didntGetTo.length; d++) {
+      var dContent = renderTaskContent(didntGetTo[d].content);
+      html += '<div class="rf-shutdown-item missed">';
+      html += '<i class="fa-regular fa-circle"></i>';
+      html += '<span class="rf-shutdown-item-content">' + dContent + '</span>';
+      html += '</div>';
+    }
+    html += '</div>';
+  }
+  html += '</div>';
+
+  // Highlights textarea
+  html += '<div class="rf-shutdown-section">';
+  html += '<h3 class="rf-shutdown-section-title"><i class="fa-solid fa-pen-fancy"></i> Highlights</h3>';
+  html += '<p class="rf-text-muted">What went well? What could be better? Any unplanned tasks?</p>';
+  html += '<textarea class="rf-shutdown-textarea" id="shutdownHighlights" placeholder="- Great progress on the project\n- Got distracted by emails\n- Unplanned meeting took 1 hour">' + esc(existingHighlights) + '</textarea>';
+  html += '</div>';
+
+  // Save button
+  html += '<div class="rf-shutdown-actions">';
+  html += '<button class="rf-shutdown-save" data-action="saveShutdown"><i class="fa-solid fa-check"></i> Save Shutdown</button>';
+  html += '</div>';
+
+  html += '</div>';
+  return html;
+}
+
 function buildPlaceholderTab(tabName) {
   var html = '<div class="rf-placeholder">';
   html += '<i class="fa-solid fa-wrench rf-placeholder-icon"></i>';
@@ -1363,7 +1575,7 @@ function buildDashboardHTML(tab, data) {
       html += buildPlanTab(data);
       break;
     case 'shutdown':
-      html += buildPlaceholderTab('Shutdown');
+      html += buildShutdownTab(data.workedOn || [], data.didntGetTo || [], data.existingHighlights || '');
       break;
     case 'highlights':
       html += buildPlaceholderTab('Highlights');
@@ -1792,6 +2004,63 @@ function getInlineCSS() {
 '}\n' +
 '.rf-placeholder-icon { font-size: 48px; opacity: 0.3; }\n' +
 
+/* ---- Shutdown Tab ---- */
+'.rf-shutdown {\n' +
+'  padding: 24px 20px 60px; max-width: 700px; margin: 0 auto;\n' +
+'}\n' +
+'.rf-shutdown-header {\n' +
+'  margin-bottom: 24px;\n' +
+'}\n' +
+'.rf-shutdown-header h2 { display: flex; align-items: center; gap: 10px; }\n' +
+'.rf-shutdown-header h2 i { color: var(--rf-accent); }\n' +
+'.rf-shutdown-header p { margin-top: 4px; }\n' +
+'.rf-shutdown-section {\n' +
+'  margin-bottom: 24px;\n' +
+'}\n' +
+'.rf-shutdown-section-title {\n' +
+'  font-size: 13px; font-weight: 700; color: var(--rf-text-muted);\n' +
+'  text-transform: uppercase; letter-spacing: 0.5px;\n' +
+'  display: flex; align-items: center; gap: 8px;\n' +
+'  margin-bottom: 10px;\n' +
+'}\n' +
+'.rf-shutdown-section-title i { font-size: 14px; }\n' +
+'.rf-shutdown-list {\n' +
+'  display: flex; flex-direction: column; gap: 2px;\n' +
+'}\n' +
+'.rf-shutdown-item {\n' +
+'  display: flex; align-items: flex-start; gap: 8px;\n' +
+'  padding: 8px 10px; border-radius: var(--rf-radius-sm);\n' +
+'}\n' +
+'.rf-shutdown-item.done i { color: var(--rf-green); font-size: 13px; margin-top: 3px; }\n' +
+'.rf-shutdown-item.missed i { color: var(--rf-text-faint); font-size: 13px; margin-top: 3px; }\n' +
+'.rf-shutdown-item-content { flex: 1; min-width: 0; font-size: 14px; line-height: 1.5; }\n' +
+'.rf-shutdown-time {\n' +
+'  flex-shrink: 0; font-size: 12px; color: var(--rf-text-muted);\n' +
+'  font-weight: 600; margin-top: 2px;\n' +
+'}\n' +
+'.rf-shutdown-congrats {\n' +
+'  color: var(--rf-green); font-size: 14px; font-weight: 600;\n' +
+'  display: flex; align-items: center; gap: 8px; padding: 8px 0;\n' +
+'}\n' +
+'.rf-shutdown-textarea {\n' +
+'  width: 100%; min-height: 120px; padding: 12px;\n' +
+'  border-radius: var(--rf-radius-sm); border: 1px solid var(--rf-border);\n' +
+'  background: var(--rf-bg); color: var(--rf-text);\n' +
+'  font-family: inherit; font-size: 14px; line-height: 1.6; resize: vertical;\n' +
+'}\n' +
+'.rf-shutdown-textarea::placeholder { color: var(--rf-text-faint); }\n' +
+'.rf-shutdown-actions {\n' +
+'  display: flex; justify-content: center; padding-top: 8px;\n' +
+'}\n' +
+'.rf-shutdown-save {\n' +
+'  padding: 12px 32px; border-radius: var(--rf-radius-sm);\n' +
+'  border: none; background: var(--rf-accent); color: white;\n' +
+'  font-size: 14px; font-weight: 600; cursor: pointer;\n' +
+'  display: flex; align-items: center; gap: 8px;\n' +
+'  transition: all 0.15s;\n' +
+'}\n' +
+'.rf-shutdown-save:hover { filter: brightness(1.1); }\n' +
+
 /* ---- Empty state ---- */
 '.rf-empty {\n' +
 '  padding: 24px 16px; text-align: center; color: var(--rf-text-faint);\n' +
@@ -1882,8 +2151,13 @@ async function showReflect(tab) {
 
     if (note) {
       data.planTasks = getPlanTasks(note);
-      if (activeTab === 'today' || activeTab === 'focus') {
+      if (activeTab === 'today' || activeTab === 'focus' || activeTab === 'shutdown') {
         data.focusMap = getFocusedTimeMap(note);
+      }
+      if (activeTab === 'shutdown') {
+        data.workedOn = getWorkedOnTasks(data.focusMap, data.planTasks);
+        data.didntGetTo = getDidntGetToTasks(data.focusMap, data.planTasks);
+        data.existingHighlights = getExistingHighlightsText(note);
       }
       if (activeTab === 'plan') {
         var cached = await getCachedTasks(note, config);
@@ -2085,6 +2359,17 @@ async function onMessageFromHTMLView(actionType, data) {
         var clickConf = getSettings();
         var tasks = await fetchClickUpTasks(clickConf.clickupApiToken, clickConf.clickupTeamId);
         await sendToHTMLWindow(WINDOW_ID, 'CLICKUP_TASKS', { tasks: tasks });
+        break;
+
+      case 'saveShutdown':
+        if (note) {
+          var focusMapForShutdown = getFocusedTimeMap(note);
+          var planTasksForShutdown = getPlanTasks(note);
+          var workedOn = getWorkedOnTasks(focusMapForShutdown, planTasksForShutdown);
+          var didntGetTo = getDidntGetToTasks(focusMapForShutdown, planTasksForShutdown);
+          saveShutdownData(note, workedOn, didntGetTo, msg.highlights || '');
+          await sendToHTMLWindow(WINDOW_ID, 'SHOW_TOAST', { message: 'Shutdown saved' });
+        }
         break;
 
       case 'openNote':
