@@ -9,6 +9,26 @@ const PLUGIN_ID = 'asktru.Reflect';
 const WINDOW_ID = 'asktru.Reflect.dashboard';
 const REFLECT_HEADING = 'Reflect';
 
+// Task cache — avoid re-scanning on every tab switch
+var _taskCache = null;
+var _taskCacheTime = 0;
+var _taskCacheTTL = 30000; // 30 seconds
+
+function invalidateTaskCache() { _taskCache = null; _taskCacheTime = 0; }
+
+function getCachedTasks(note, config) {
+  var now = Date.now();
+  if (_taskCache && (now - _taskCacheTime) < _taskCacheTTL) return _taskCache;
+
+  _taskCache = {
+    dailyTasks: getDailyNoteTasks(note),
+    scheduledToday: getScheduledForToday(),
+    scheduledWeek: getScheduledThisWeek(),
+  };
+  _taskCacheTime = now;
+  return _taskCache;
+}
+
 function getSettings() {
   var s = DataStore.settings || {};
   var timer = {};
@@ -396,13 +416,20 @@ function getScheduledTasks(startDate, endDate) {
 }
 
 function getScheduledForToday() {
+  // Today + overdue: from far past up to today
   var today = getTodayStr();
-  return getScheduledTasks(today, today);
+  return getScheduledTasks('2000-01-01', today);
 }
 
 function getScheduledThisWeek() {
+  // This week only (future days, excluding today which is in the Today tab)
+  var today = getTodayStr();
   var range = getWeekRange();
-  return getScheduledTasks(range.start, range.end);
+  // Start from tomorrow to avoid duplicating today's tasks
+  var tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  var tomorrowStr = getDateStr(tomorrow);
+  return getScheduledTasks(tomorrowStr, range.end);
 }
 
 // ============================================
@@ -562,6 +589,21 @@ function stopFocusSession(note, focusNotes) {
 // RENDER MARKDOWN (basic)
 // ============================================
 
+function extractPriority(content) {
+  // p1 = !!! (highest), p2 = !!, p3 = !
+  if (content.startsWith('!!! ')) return { level: 1, content: content.substring(4) };
+  if (content.startsWith('!! ')) return { level: 2, content: content.substring(3) };
+  if (content.startsWith('! ')) return { level: 3, content: content.substring(2) };
+  return { level: 0, content: content };
+}
+
+function renderPriorityBadge(level) {
+  if (level === 0) return '';
+  var labels = { 1: 'P1', 2: 'P2', 3: 'P3' };
+  var classes = { 1: 'rf-pri-1', 2: 'rf-pri-2', 3: 'rf-pri-3' };
+  return '<span class="rf-pri ' + classes[level] + '">' + labels[level] + '</span>';
+}
+
 function renderMarkdown(str) {
   if (!str) return '';
   var s = esc(str);
@@ -584,6 +626,13 @@ function renderMarkdown(str) {
   // Strip scheduling markers
   s = s.replace(/&gt;(\d{4}-\d{2}-\d{2}|\d{4}-W\d{2}|today)/g, '');
   return s.trim();
+}
+
+function renderTaskContent(content) {
+  var pri = extractPriority(content);
+  var badge = renderPriorityBadge(pri.level);
+  var html = renderMarkdown(pri.content);
+  return badge + html;
 }
 
 // ============================================
@@ -618,7 +667,7 @@ function buildPlanItem(task, index) {
   var cbClass = isDone ? 'checklistDone' : 'checklist';
   var cbIcon = isDone ? 'fa-solid fa-square-check' : 'fa-regular fa-square';
   var itemClass = 'rf-plan-item' + (isDone ? ' is-done' : '');
-  var contentHTML = renderMarkdown(task.content);
+  var contentHTML = renderTaskContent(task.content);
 
   var html = '<div class="' + itemClass + '" draggable="true" data-line-index="' + task.lineIndex + '" data-index="' + index + '">';
   html += '<span class="rf-drag-handle"><i class="fa-solid fa-grip-vertical"></i></span>';
@@ -630,29 +679,49 @@ function buildPlanItem(task, index) {
   return html;
 }
 
-function buildSourceTask(task) {
-  var contentHTML = renderMarkdown(task.content);
+function buildSourceTask(task, planContentSet) {
+  var isInPlan = planContentSet && planContentSet[task.content];
+  var contentHTML = renderTaskContent(task.content);
   var meta = '';
   if (task.noteTitle) {
-    meta = '<span class="rf-source-meta">' + esc(task.noteTitle) + '</span>';
+    meta += '<span class="rf-source-meta"><i class="fa-solid fa-file-lines"></i> ' + esc(task.noteTitle) + '</span>';
   }
   if (task.scheduledDate) {
-    meta += '<span class="rf-source-date">' + esc(task.scheduledDate) + '</span>';
+    var dateClass = 'rf-source-date';
+    var todayStr = getTodayStr();
+    if (task.scheduledDate < todayStr) dateClass += ' overdue';
+    else if (task.scheduledDate === todayStr) dateClass += ' today';
+    meta += '<span class="' + dateClass + '"><i class="fa-regular fa-calendar"></i> ' + esc(task.scheduledDate) + '</span>';
   }
 
-  var html = '<div class="rf-source-task" data-content="' + esc(task.content) + '">';
-  html += '<div class="rf-source-task-main">';
+  var taskClass = 'rf-source-task' + (isInPlan ? ' in-plan' : '');
+  var html = '<div class="' + taskClass + '" data-content="' + esc(task.content) + '">';
+
+  // "+" button on the left (where status circle would be)
+  if (isInPlan) {
+    html += '<span class="rf-source-added"><i class="fa-solid fa-check"></i></span>';
+  } else {
+    html += '<button class="rf-source-add" data-action="addToPlan" data-content="' + esc(task.content) + '" title="Add to plan (S)">';
+    html += '<i class="fa-solid fa-plus"></i>';
+    html += '</button>';
+  }
+
+  html += '<div class="rf-source-task-body">';
   html += '<span class="rf-source-task-content">' + contentHTML + '</span>';
-  html += '</div>';
   if (meta) html += '<div class="rf-source-task-meta">' + meta + '</div>';
-  html += '<button class="rf-source-add" data-action="addToPlan" data-content="' + esc(task.content) + '" title="Add to plan (S)">';
-  html += '<i class="fa-solid fa-plus"></i>';
-  html += '</button>';
+  html += '</div>';
+
   html += '</div>';
   return html;
 }
 
 function buildTodayTab(planTasks, dailyTasks, scheduledToday, scheduledWeek, hasClickUp) {
+  // Build set of plan task contents for marking already-added tasks
+  var planContentSet = {};
+  for (var p = 0; p < planTasks.length; p++) {
+    planContentSet[planTasks[p].content] = true;
+  }
+
   var html = '<div class="rf-today">';
 
   // Left: Plan
@@ -689,29 +758,29 @@ function buildTodayTab(planTasks, dailyTasks, scheduledToday, scheduledWeek, has
     html += '<div class="rf-empty">No tasks in today\'s daily note</div>';
   } else {
     for (var d = 0; d < dailyTasks.length; d++) {
-      html += buildSourceTask(dailyTasks[d]);
+      html += buildSourceTask(dailyTasks[d], planContentSet);
     }
   }
   html += '</div>';
 
-  // Scheduled Today source
+  // Scheduled Today (includes overdue)
   html += '<div class="rf-source-list" data-source="today">';
   if (scheduledToday.length === 0) {
     html += '<div class="rf-empty">No tasks scheduled for today</div>';
   } else {
     for (var st = 0; st < scheduledToday.length; st++) {
-      html += buildSourceTask(scheduledToday[st]);
+      html += buildSourceTask(scheduledToday[st], planContentSet);
     }
   }
   html += '</div>';
 
-  // This Week source
+  // This Week (future days only)
   html += '<div class="rf-source-list" data-source="week">';
   if (scheduledWeek.length === 0) {
     html += '<div class="rf-empty">No tasks scheduled this week</div>';
   } else {
     for (var sw = 0; sw < scheduledWeek.length; sw++) {
-      html += buildSourceTask(scheduledWeek[sw]);
+      html += buildSourceTask(scheduledWeek[sw], planContentSet);
     }
   }
   html += '</div>';
@@ -1014,6 +1083,17 @@ function getInlineCSS() {
 '}\n' +
 '.rf-source-list.active { display: block; }\n' +
 
+/* ---- Priority Badges ---- */
+'.rf-pri {\n' +
+'  display: inline-flex; align-items: center; justify-content: center;\n' +
+'  padding: 0 5px; height: 16px; border-radius: 3px;\n' +
+'  font-size: 9px; font-weight: 800; margin-right: 4px;\n' +
+'  vertical-align: middle;\n' +
+'}\n' +
+'.rf-pri-1 { background: var(--rf-red-soft); color: var(--rf-red); }\n' +
+'.rf-pri-2 { background: var(--rf-orange-soft); color: var(--rf-orange); }\n' +
+'.rf-pri-3 { background: var(--rf-blue-soft); color: var(--rf-blue); }\n' +
+
 /* ---- Source Tasks ---- */
 '.rf-source-task {\n' +
 '  display: flex; align-items: flex-start; gap: 8px;\n' +
@@ -1021,7 +1101,8 @@ function getInlineCSS() {
 '  transition: background 0.1s;\n' +
 '}\n' +
 '.rf-source-task:hover { background: var(--rf-border); }\n' +
-'.rf-source-task-main { flex: 1; min-width: 0; }\n' +
+'.rf-source-task.in-plan { opacity: 0.5; }\n' +
+'.rf-source-task-body { flex: 1; min-width: 0; }\n' +
 '.rf-source-task-content {\n' +
 '  font-size: 13px; line-height: 1.5; word-break: break-word;\n' +
 '}\n' +
@@ -1032,17 +1113,25 @@ function getInlineCSS() {
 '  font-size: 10px; padding: 1px 6px; border-radius: 3px;\n' +
 '  background: var(--rf-border); color: var(--rf-text-muted);\n' +
 '  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;\n' +
-'  max-width: 180px;\n' +
+'  max-width: 200px;\n' +
 '}\n' +
+'.rf-source-date i, .rf-source-meta i { margin-right: 3px; font-size: 9px; }\n' +
+'.rf-source-date.overdue { color: var(--rf-red); }\n' +
+'.rf-source-date.today { color: var(--rf-orange); }\n' +
 '.rf-source-add {\n' +
-'  flex-shrink: 0; width: 28px; height: 28px;\n' +
-'  border-radius: var(--rf-radius-sm); border: 1px solid var(--rf-border);\n' +
-'  background: transparent; color: var(--rf-text-muted);\n' +
+'  flex-shrink: 0; width: 22px; height: 22px;\n' +
+'  border-radius: 50%; border: 1px solid var(--rf-border-strong);\n' +
+'  background: transparent; color: var(--rf-text-faint);\n' +
 '  cursor: pointer; display: flex; align-items: center; justify-content: center;\n' +
-'  font-size: 12px; transition: all 0.15s; opacity: 0;\n' +
+'  font-size: 10px; transition: all 0.15s; margin-top: 2px;\n' +
 '}\n' +
-'.rf-source-task:hover .rf-source-add { opacity: 1; }\n' +
+'.rf-source-task:hover .rf-source-add { color: var(--rf-accent); border-color: var(--rf-accent); }\n' +
 '.rf-source-add:hover { background: var(--rf-accent-soft); color: var(--rf-accent); border-color: var(--rf-accent); }\n' +
+'.rf-source-added {\n' +
+'  flex-shrink: 0; width: 22px; height: 22px;\n' +
+'  border-radius: 50%; display: flex; align-items: center; justify-content: center;\n' +
+'  font-size: 10px; color: var(--rf-green); margin-top: 2px;\n' +
+'}\n' +
 
 /* ---- Focus Tab ---- */
 '.rf-focus {\n' +
@@ -1189,9 +1278,10 @@ async function showReflect(tab) {
     if (note) {
       data.planTasks = getPlanTasks(note);
       if (activeTab === 'today') {
-        data.dailyTasks = getDailyNoteTasks(note);
-        data.scheduledToday = getScheduledForToday();
-        data.scheduledWeek = getScheduledThisWeek();
+        var cached = getCachedTasks(note, config);
+        data.dailyTasks = cached.dailyTasks;
+        data.scheduledToday = cached.scheduledToday;
+        data.scheduledWeek = cached.scheduledWeek;
       } else if (activeTab === 'focus') {
         // Only need plan tasks + timer state (already loaded)
       }
@@ -1230,6 +1320,7 @@ async function showReflect(tab) {
 }
 
 async function refreshReflect() {
+  invalidateTaskCache();
   await showReflect();
 }
 
@@ -1246,6 +1337,7 @@ async function onMessageFromHTMLView(actionType, data) {
       case 'addToPlan':
         if (note && msg.content) {
           addToPlan(note, msg.content);
+          invalidateTaskCache();
           await showReflect('today');
         }
         break;
@@ -1253,6 +1345,7 @@ async function onMessageFromHTMLView(actionType, data) {
       case 'reorderPlan':
         if (note && msg.orderedLineIndices) {
           reorderPlanTasks(note, msg.orderedLineIndices);
+          invalidateTaskCache();
           await showReflect('today');
         }
         break;
@@ -1260,6 +1353,7 @@ async function onMessageFromHTMLView(actionType, data) {
       case 'togglePlanTask':
         if (note && msg.lineIndex !== undefined) {
           togglePlanTask(note, parseInt(msg.lineIndex, 10));
+          invalidateTaskCache();
           var config = getSettings();
           await showReflect(config.lastTab || 'today');
         }
