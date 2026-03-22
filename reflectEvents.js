@@ -606,8 +606,8 @@ document.addEventListener('DOMContentLoaded', function() {
     if (cardTimer) startTimerUI(parseInt(cardTimer, 10));
   }
 
-  // Init drag-and-drop on plan items
-  if (currentTab === 'today') {
+  // Init drag-and-drop on plan items (works on both today and plan tabs)
+  if (currentTab === 'today' || currentTab === 'plan') {
     initPlanDragAndDrop();
   }
 

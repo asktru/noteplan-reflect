@@ -445,6 +445,9 @@ async function getTodayCalendarEvents() {
     for (var i = 0; i < events.length; i++) {
       var ev = events[i];
       if (!ev.date || ev.isAllDay) continue; // Skip all-day events
+      // Skip NotePlan's internal timeblock calendar
+      var calName = (ev.calendar || '').toLowerCase();
+      if (calName.indexOf('noteplan') >= 0 && calName.indexOf('timeblock') >= 0) continue;
       var startDate = new Date(ev.date);
       var endDate = ev.endDate ? new Date(ev.endDate) : startDate;
       var durationMin = Math.round((endDate - startDate) / 60000);
