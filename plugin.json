@@ -74,7 +74,7 @@
       "sidebarView": {
         "windowID": "asktru.Reflect.dashboard",
         "title": "Reflect",
-        "icon": "sun.max",
+        "icon": "fa-sun-bright",
         "iconColor": "#F97316"
       }
     },

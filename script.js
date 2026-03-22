@@ -439,16 +439,44 @@ function getScheduledThisWeek() {
 async function fetchClickUpTasks(apiToken, teamId) {
   if (!apiToken || !teamId) return [];
   try {
-    var url = 'https://api.clickup.com/api/v2/team/' + teamId + '/task?assignees[]=me&statuses[]=open&statuses[]=in%20progress&order_by=due_date&reverse=true&subtasks=true&include_closed=false';
+    // Check if fetch is available
+    if (typeof fetch === 'undefined') {
+      console.log('Reflect: fetch() not available in this environment');
+      return [];
+    }
+
+    // Step 1: Get authorized user to find their member ID
+    var meResp = await fetch('https://api.clickup.com/api/v2/user', {
+      method: 'GET',
+      headers: { 'Authorization': apiToken },
+    });
+    var meData = null;
+    var assigneeParam = '';
+    if (meResp.ok) {
+      meData = JSON.parse(await meResp.text());
+      var userId = meData && meData.user ? String(meData.user.id) : '';
+      if (userId) assigneeParam = '&assignees%5B%5D=' + userId;
+    }
+
+    // Step 2: Get tasks — filter by assignee if we have it
+    var url = 'https://api.clickup.com/api/v2/team/' + teamId +
+      '/task?statuses%5B%5D=open&statuses%5B%5D=in%20progress' +
+      '&order_by=due_date&reverse=true&subtasks=true&include_closed=false' +
+      assigneeParam;
+
+    console.log('Reflect: Fetching ClickUp tasks from: ' + url);
     var resp = await fetch(url, {
       method: 'GET',
-      headers: { 'Authorization': apiToken, 'Content-Type': 'application/json' },
+      headers: { 'Authorization': apiToken },
     });
     if (!resp.ok) {
-      console.log('Reflect: ClickUp API error: ' + resp.status);
+      var errText = '';
+      try { errText = await resp.text(); } catch (e2) {}
+      console.log('Reflect: ClickUp API error ' + resp.status + ': ' + errText);
       return [];
     }
     var data = JSON.parse(await resp.text());
+    console.log('Reflect: Got ' + (data.tasks || []).length + ' ClickUp tasks');
     var tasks = (data.tasks || []).map(function(t) {
       return {
         content: t.name,
@@ -457,6 +485,7 @@ async function fetchClickUpTasks(apiToken, teamId) {
         url: t.url,
         status: (t.status || {}).status || 'open',
         dueDate: t.due_date ? new Date(parseInt(t.due_date)).toISOString().slice(0, 10) : null,
+        listName: t.list ? t.list.name : '',
         source: 'clickup',
       };
     });
@@ -477,8 +506,17 @@ function addToPlan(note, content) {
   var range = findSectionRange(note, 'Plan', 2);
   if (!range) return false;
 
-  // Insert checklist at end of Plan section
-  var insertAt = range.end;
+  // Find last non-empty line in the Plan section to insert right after it
+  var paras = note.paragraphs;
+  var insertAt = range.start; // default: right after heading
+  for (var i = range.end - 1; i >= range.start; i--) {
+    var p = paras[i];
+    if (p.type !== 'empty' && p.content && p.content.trim() !== '') {
+      insertAt = i + 1;
+      break;
+    }
+  }
+
   note.insertParagraph(content, insertAt, 'checklist');
   return true;
 }
