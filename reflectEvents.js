@@ -40,7 +40,6 @@ function onMessageFromPlugin(type, data) {
 }
 
 function handleTaskAddedToPlan(data) {
-  console.log('handleTaskAddedToPlan called, contentHTML length=' + (data.contentHTML || '').length + ', lineIndex=' + data.lineIndex);
   // 1. Add new item to plan list
   var planList = document.getElementById('planList');
   if (planList) {

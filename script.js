@@ -256,15 +256,9 @@ function getPlanTasks(note) {
     var t = p.type;
     if (t === 'checklist' || t === 'checklistDone' || t === 'checklistCancelled' ||
         t === 'open' || t === 'done' || t === 'cancelled') {
-      var taskContent = p.content;
-      // Log calendar link content for debugging
-      if (taskContent.indexOf('!') >= 0 || taskContent.indexOf('📅') >= 0) {
-        console.log('Reflect: Plan task content: [' + taskContent + ']');
-        console.log('Reflect: Plan task rawContent: [' + p.rawContent + ']');
-      }
       tasks.push({
-        content: taskContent,
-        rawContent: p.rawContent || taskContent,
+        content: p.content,
+        rawContent: p.rawContent || p.content,
         type: t,
         lineIndex: p.lineIndex,
         indentLevel: p.indentLevel || 0,
@@ -780,12 +774,7 @@ function renderMarkdown(str) {
   if (!str) return '';
 
   // Calendar event deeplink: process BEFORE esc()
-  if (str.indexOf('!') >= 0) console.log('Reflect renderMarkdown input: [' + str.substring(0, 100) + ']');
   var calParsed = parseCalendarLink(str);
-  if (calParsed.found) {
-    console.log('Reflect parseCalendarLink: found title=' + calParsed.title + ' time=' + calParsed.time);
-    console.log('Reflect: str after replace: [' + str.substring(0, 60) + ']');
-  }
   var calBadgeHTML = '';
   if (calParsed.found) {
     calBadgeHTML = '<span class="rf-cal-badge" style="--cal-color: ' + esc(calParsed.color) + '">' +
@@ -796,11 +785,6 @@ function renderMarkdown(str) {
   }
 
   var s = esc(str);
-
-  // Restore calendar badge
-  if (calBadgeHTML) {
-    s = s.replace('__CALBADGE__', calBadgeHTML);
-  }
 
   // Bold
   s = s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
@@ -820,6 +804,12 @@ function renderMarkdown(str) {
   s = s.replace(/(^|[\s(])@([\w\/-]+(?:\([^)]*\))?)/g, '$1<span class="rf-mention">@$2</span>');
   // Strip scheduling markers
   s = s.replace(/&gt;(\d{4}-\d{2}-\d{2}|\d{4}-W\d{2}|today)/g, '');
+
+  // Restore calendar badge LAST — after all regex processing to prevent
+  // the hashtag regex from matching #B99AFF inside the style attribute
+  if (calBadgeHTML) {
+    s = s.replace('__CALBADGE__', calBadgeHTML);
+  }
   return s.trim();
 }
 
