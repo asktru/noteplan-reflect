@@ -163,6 +163,14 @@ function getTodayNote() {
   return DataStore.calendarNoteByDateString(todayStr);
 }
 
+/**
+ * Strip trailing collapse indicator (` …` or `…`) from heading content.
+ * NotePlan appends this when a heading is collapsed in the UI.
+ */
+function stripCollapse(str) {
+  return (str || '').replace(/\s*…$/, '').trim();
+}
+
 function esc(str) {
   return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
@@ -179,7 +187,7 @@ function findSectionRange(note, headingText, headingLevel) {
   for (var i = 0; i < paras.length; i++) {
     var p = paras[i];
     if (startLine === -1) {
-      if (p.type === 'title' && p.headingLevel === headingLevel && p.content.trim() === headingText) {
+      if (p.type === 'title' && p.headingLevel === headingLevel && stripCollapse(p.content) === headingText) {
         startLine = i + 1;
       }
     } else {
@@ -200,7 +208,7 @@ function findHeadingLine(note, headingText, headingLevel) {
   var paras = note.paragraphs;
   for (var i = 0; i < paras.length; i++) {
     var p = paras[i];
-    if (p.type === 'title' && p.headingLevel === headingLevel && p.content.trim() === headingText) {
+    if (p.type === 'title' && p.headingLevel === headingLevel && stripCollapse(p.content) === headingText) {
       return i;
     }
   }
@@ -1392,7 +1400,7 @@ function getExistingHighlightsText(note) {
   var paras = note.paragraphs;
   var textStart = -1;
   for (var i = range.start; i < range.end; i++) {
-    if (paras[i].type === 'title' && paras[i].headingLevel === 3 && paras[i].content.trim() === 'Highlights') {
+    if (paras[i].type === 'title' && paras[i].headingLevel === 3 && stripCollapse(paras[i].content) === 'Highlights') {
       textStart = i + 1;
       break;
     }
@@ -1454,7 +1462,7 @@ function getHighlightsHistory(limit, offset) {
     var highlightsStart = -1;
     for (var p = 0; p < paras.length; p++) {
       if (paras[p].type === 'title' && paras[p].headingLevel === 2 &&
-          paras[p].content && paras[p].content.trim() === 'Highlights') {
+          paras[p].content && stripCollapse(paras[p].content) === 'Highlights') {
         highlightsStart = p + 1;
         break;
       }
@@ -1483,7 +1491,7 @@ function getHighlightsHistory(limit, offset) {
     for (var r = highlightsStart; r < highlightsEnd; r++) {
       var para = paras[r];
       if (para.type === 'title' && para.headingLevel === 3) {
-        var heading = (para.content || '').trim();
+        var heading = stripCollapse(para.content);
         if (heading === 'Worked on') currentSection = 'workedOn';
         else if (heading === "Didn't get to") currentSection = 'didntGetTo';
         else if (heading === 'Highlights') currentSection = 'highlights';
