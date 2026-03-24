@@ -766,7 +766,7 @@ function extractPriority(content) {
 
 function renderPriorityBadge(level) {
   if (level === 0) return '';
-  var labels = { 1: 'P1', 2: 'P2', 3: 'P3' };
+  var labels = { 1: '!', 2: '!!', 3: '!!!' };
   var classes = { 1: 'rf-pri-1', 2: 'rf-pri-2', 3: 'rf-pri-3' };
   return '<span class="rf-pri ' + classes[level] + '">' + labels[level] + '</span>';
 }
@@ -833,6 +833,12 @@ function renderMarkdown(str) {
   s = s.replace(/~~(.+?)~~/g, '<del>$1</del>');
   // Highlight
   s = s.replace(/==(.+?)==/g, '<mark class="rf-md-highlight">$1</mark>');
+  // Wiki links: [[Note Name]]
+  s = s.replace(/\[\[([^\]]+)\]\]/g, function(match, noteName) {
+    var encoded = encodeURIComponent(noteName.replace(/\.md$/, '') + '.md');
+    var url = 'noteplan://x-callback-url/openNote?filename=' + encoded + '&amp;reuseSplitView=yes&amp;splitView=yes';
+    return '<a class="rf-md-link" href="' + url + '" title="' + noteName.replace(/"/g, '&amp;quot;') + '">&#x1F517; ' + noteName + '</a>';
+  });
   // Links
   s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" class="rf-md-link" title="$2">$1</a>');
   // Hashtags (orange)
@@ -1335,7 +1341,16 @@ function buildFocusTab(planTasks, timerState, focusMap) {
   }
   html += '</div>';
 
-  html += '<textarea class="rf-focus-notes" id="focusNotes" placeholder="Session notes..."></textarea>';
+  html += '<div class="rf-notes-editor">';
+  html += '<div class="rf-notes-toolbar">';
+  html += '<button class="rf-notes-tb-btn" data-md-action="bold" title="Bold"><i class="fa-solid fa-bold"></i></button>';
+  html += '<button class="rf-notes-tb-btn" data-md-action="italic" title="Italic"><i class="fa-solid fa-italic"></i></button>';
+  html += '<button class="rf-notes-tb-btn" data-md-action="code" title="Inline code"><i class="fa-solid fa-code"></i></button>';
+  html += '<button class="rf-notes-tb-btn" data-md-action="link" title="Link"><i class="fa-solid fa-link"></i></button>';
+  html += '<button class="rf-notes-tb-btn" data-md-action="task" title="Task"><i class="fa-solid fa-square-check"></i></button>';
+  html += '</div>';
+  html += '<div class="rf-focus-notes" id="focusNotes" contenteditable="true" data-placeholder="Session notes..."></div>';
+  html += '</div>';
 
   html += '<button class="rf-focus-complete" data-action="completeFocusTask" data-line-index="' + currentTask.lineIndex + '"><i class="fa-solid fa-check"></i> Complete & Next</button>';
 
@@ -2134,13 +2149,36 @@ function getInlineCSS() {
 '.rf-focus-btn.start:hover { filter: brightness(1.1); }\n' +
 '.rf-focus-btn.stop { background: var(--rf-red); color: white; }\n' +
 '.rf-focus-btn.stop:hover { filter: brightness(1.1); }\n' +
+'.rf-notes-editor {\n' +
+'  width: 100%; border-radius: var(--rf-radius-sm); border: 1px solid var(--rf-border);\n' +
+'  background: var(--rf-bg); overflow: hidden;\n' +
+'}\n' +
+'.rf-notes-toolbar {\n' +
+'  display: flex; gap: 2px; padding: 4px 8px;\n' +
+'  border-bottom: 1px solid var(--rf-border); background: var(--rf-bg-elevated);\n' +
+'}\n' +
+'.rf-notes-tb-btn {\n' +
+'  background: none; border: none; color: var(--rf-text-muted);\n' +
+'  width: 28px; height: 28px; border-radius: 4px;\n' +
+'  cursor: pointer; font-size: 12px;\n' +
+'  display: flex; align-items: center; justify-content: center;\n' +
+'}\n' +
+'.rf-notes-tb-btn:hover { background: var(--rf-border); color: var(--rf-text); }\n' +
 '.rf-focus-notes {\n' +
 '  width: 100%; min-height: 80px; padding: 12px;\n' +
-'  border-radius: var(--rf-radius-sm); border: 1px solid var(--rf-border);\n' +
 '  background: var(--rf-bg); color: var(--rf-text);\n' +
-'  font-family: inherit; font-size: 13px; resize: vertical;\n' +
+'  font-family: inherit; font-size: 13px; line-height: 1.6;\n' +
+'  outline: none; overflow-y: auto; max-height: 200px;\n' +
 '}\n' +
-'.rf-focus-notes::placeholder { color: var(--rf-text-faint); }\n' +
+'.rf-focus-notes:empty::before {\n' +
+'  content: attr(data-placeholder); color: var(--rf-text-faint);\n' +
+'  pointer-events: none;\n' +
+'}\n' +
+'.rf-focus-notes code {\n' +
+'  background: var(--rf-border); padding: 1px 4px; border-radius: 3px;\n' +
+'  font-family: "SF Mono", monospace; font-size: 12px;\n' +
+'}\n' +
+'.rf-focus-notes a { color: var(--rf-accent); text-decoration: underline; }\n' +
 '.rf-focus-stats {\n' +
 '  display: flex; gap: 20px; justify-content: center; flex-wrap: wrap;\n' +
 '}\n' +

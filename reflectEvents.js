@@ -621,16 +621,51 @@ function handleStartFocus(el) {
   }
 }
 
-function handleStopFocus() {
+/**
+ * Extract markdown text from the contenteditable focus notes editor.
+ * Converts HTML back to markdown: <strong> → **, <em> → *, <code> → `, <a> → [text](url)
+ */
+function extractNotesMarkdown() {
   var notesEl = document.getElementById('focusNotes');
-  var notes = notesEl ? notesEl.value : '';
+  if (!notesEl) return '';
+
+  // Walk child nodes to convert HTML to markdown
+  function nodeToMd(node) {
+    if (node.nodeType === 3) return node.textContent; // text node
+    if (node.nodeType !== 1) return '';
+
+    var tag = node.tagName.toLowerCase();
+    var inner = '';
+    for (var i = 0; i < node.childNodes.length; i++) {
+      inner += nodeToMd(node.childNodes[i]);
+    }
+
+    switch (tag) {
+      case 'strong': case 'b': return '**' + inner + '**';
+      case 'em': case 'i': return '*' + inner + '*';
+      case 'code': return '`' + inner + '`';
+      case 'a': return '[' + inner + '](' + (node.getAttribute('href') || '') + ')';
+      case 'br': return '\n';
+      case 'div': case 'p': return (inner ? '\n' + inner : '');
+      default: return inner;
+    }
+  }
+
+  var md = '';
+  for (var i = 0; i < notesEl.childNodes.length; i++) {
+    md += nodeToMd(notesEl.childNodes[i]);
+  }
+  return md.replace(/^\n+/, '').replace(/\n+$/, '');
+}
+
+function handleStopFocus() {
+  var notes = extractNotesMarkdown();
   sendMessageToPlugin('stopFocus', JSON.stringify({ notes: notes }));
 }
 
 function handleCompleteFocusTask(el) {
   var lineIndex = el.dataset.lineIndex;
-  var notesEl = document.getElementById('focusNotes');
-  var notes = notesEl ? notesEl.value : '';
+  var notes = extractNotesMarkdown();
   sendMessageToPlugin('completeFocusTask', JSON.stringify({ lineIndex: lineIndex, notes: notes }));
 }
 
@@ -736,6 +771,71 @@ document.addEventListener('DOMContentLoaded', function() {
     var sourceTab = e.target.closest('.rf-source-tab');
     if (sourceTab) {
       handleSourceTabClick(sourceTab);
+    }
+  });
+
+  // Markdown toolbar for focus notes
+  document.body.addEventListener('click', function(e) {
+    var tbBtn = e.target.closest('[data-md-action]');
+    if (!tbBtn) return;
+    e.preventDefault();
+    var notesEl = document.getElementById('focusNotes');
+    if (!notesEl) return;
+    notesEl.focus();
+
+    var action = tbBtn.dataset.mdAction;
+    var sel = window.getSelection();
+    var selectedText = sel.rangeCount > 0 ? sel.getRangeAt(0).toString() : '';
+
+    switch (action) {
+      case 'bold':
+        document.execCommand('bold', false, null);
+        break;
+      case 'italic':
+        document.execCommand('italic', false, null);
+        break;
+      case 'code':
+        // Wrap selection in <code> tag
+        if (selectedText) {
+          var codeEl = document.createElement('code');
+          codeEl.textContent = selectedText;
+          var range = sel.getRangeAt(0);
+          range.deleteContents();
+          range.insertNode(codeEl);
+          // Place cursor after the code element
+          range.setStartAfter(codeEl);
+          range.collapse(true);
+          sel.removeAllRanges();
+          sel.addRange(range);
+        } else {
+          var codeEl2 = document.createElement('code');
+          codeEl2.textContent = 'code';
+          var range2 = sel.getRangeAt(0);
+          range2.insertNode(codeEl2);
+          // Select the placeholder text
+          range2.selectNodeContents(codeEl2);
+          sel.removeAllRanges();
+          sel.addRange(range2);
+        }
+        break;
+      case 'link':
+        var url = prompt('URL:', 'https://');
+        if (url) {
+          var linkText = selectedText || 'link';
+          var linkEl = document.createElement('a');
+          linkEl.href = url;
+          linkEl.textContent = linkText;
+          if (sel.rangeCount > 0) {
+            var range3 = sel.getRangeAt(0);
+            range3.deleteContents();
+            range3.insertNode(linkEl);
+          }
+        }
+        break;
+      case 'task':
+        // Insert a task line: "- [ ] "
+        document.execCommand('insertHTML', false, '<br>- [ ] ');
+        break;
     }
   });
 
