@@ -2308,6 +2308,10 @@ priCSSReflect() +
 '  font-family: "SF Mono", monospace; font-size: 12px;\n' +
 '}\n' +
 '.rf-focus-notes a { color: var(--rf-accent); text-decoration: underline; }\n' +
+'.rf-focus-notes ul, .rf-focus-notes ol {\n' +
+'  margin: 4px 0; padding-left: 20px;\n' +
+'}\n' +
+'.rf-focus-notes li { margin: 2px 0; }\n' +
 '.rf-focus-stats {\n' +
 '  display: flex; gap: 20px; justify-content: center; flex-wrap: wrap;\n' +
 '}\n' +
