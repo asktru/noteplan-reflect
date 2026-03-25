@@ -344,6 +344,16 @@ function getDailyNoteTasks(note) {
  * Scan all notes for tasks scheduled in a date range.
  * includeWeekly: if true, also include tasks from weekly/week-scheduled notes.
  */
+/**
+ * Check if a task should be excluded from Today/This Week source tabs.
+ * Excludes tasks with @repeat (routines) or #waiting (not actionable).
+ */
+function shouldExcludeFromSources(content) {
+  if (/@repeat\s*\(/.test(content)) return true;
+  if (/#waiting\b/.test(content)) return true;
+  return false;
+}
+
 function getScheduledTasks(startDate, endDate, includeWeekly) {
   var tasks = [];
   var todayStr = getTodayStr();
@@ -381,6 +391,7 @@ function getScheduledTasks(startDate, endDate, includeWeekly) {
     for (var i = 0; i < paras.length; i++) {
       var p = paras[i];
       if (p.type !== 'open' && p.type !== 'checklist') continue;
+      if (shouldExcludeFromSources(p.content)) continue;
       var schedDate = hasScheduleDateInRange(p.content, startDate, endDate);
       var schedWeek = hasScheduleWeek(p.content);
       if (schedDate || schedWeek) {
@@ -414,6 +425,7 @@ function getScheduledTasks(startDate, endDate, includeWeekly) {
       for (var ci = 0; ci < calParas.length; ci++) {
         var cp = calParas[ci];
         if (cp.type !== 'open' && cp.type !== 'checklist') continue;
+        if (shouldExcludeFromSources(cp.content)) continue;
         tasks.push({
           content: cp.content, rawContent: cp.content, type: cp.type,
           filename: calNote.filename, lineIndex: cp.lineIndex,
@@ -431,6 +443,7 @@ function getScheduledTasks(startDate, endDate, includeWeekly) {
         for (var wi = 0; wi < wParas.length; wi++) {
           var wp = wParas[wi];
           if (wp.type !== 'open' && wp.type !== 'checklist') continue;
+          if (shouldExcludeFromSources(wp.content)) continue;
           tasks.push({
             content: wp.content, rawContent: wp.content, type: wp.type,
             filename: calNote.filename, lineIndex: wp.lineIndex,
