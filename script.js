@@ -848,9 +848,9 @@ function renderMarkdown(str) {
   s = s.replace(/==(.+?)==/g, '<mark class="rf-md-highlight">$1</mark>');
   // Wiki links: [[Note Name]]
   s = s.replace(/\[\[([^\]]+)\]\]/g, function(match, noteName) {
-    var encoded = encodeURIComponent(noteName.replace(/\.md$/, '') + '.md');
-    var url = 'noteplan://x-callback-url/openNote?filename=' + encoded + '&amp;reuseSplitView=yes&amp;splitView=yes';
-    return '<a class="rf-md-link" href="' + url + '" title="' + noteName.replace(/"/g, '&amp;quot;') + '">&#x1F517; ' + noteName + '</a>';
+    var encoded = encodeURIComponent(noteName);
+    var url = 'noteplan://x-callback-url/openNote?noteTitle=' + encoded + '&amp;splitView=yes';
+    return '<a class="rf-md-link" href="' + url + '" title="' + noteName.replace(/"/g, '&amp;quot;') + '">' + noteName + '</a>';
   });
   // Links
   s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" class="rf-md-link" title="$2">$1</a>');
