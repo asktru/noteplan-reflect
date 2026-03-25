@@ -1232,13 +1232,48 @@ function buildPlanTab(data) {
   }
   html += '</div>';
 
-  // This Week
+  // This Week — grouped by scheduled date
   html += '<div class="rf-source-list" data-source="week">';
   if (scheduledWeek.length === 0) {
     html += '<div class="rf-empty">No tasks scheduled this week</div>';
   } else {
+    // Group tasks by scheduledDate
+    var weekGroups = {};
+    var weekGroupOrder = [];
     for (var sw = 0; sw < scheduledWeek.length; sw++) {
-      html += buildSourceTask(scheduledWeek[sw], planContentSet);
+      var wKey = scheduledWeek[sw].scheduledDate || 'Unknown';
+      if (!weekGroups[wKey]) {
+        weekGroups[wKey] = [];
+        weekGroupOrder.push(wKey);
+      }
+      weekGroups[wKey].push(scheduledWeek[sw]);
+    }
+    // Sort: week-level dates first (e.g. 2026-W13), then daily dates ascending
+    weekGroupOrder.sort(function(a, b) {
+      var aIsWeek = a.indexOf('-W') >= 0;
+      var bIsWeek = b.indexOf('-W') >= 0;
+      if (aIsWeek && !bIsWeek) return -1;
+      if (!aIsWeek && bIsWeek) return 1;
+      return a.localeCompare(b);
+    });
+    for (var wg = 0; wg < weekGroupOrder.length; wg++) {
+      var gKey = weekGroupOrder[wg];
+      var gLabel = gKey;
+      // Format label
+      if (gKey.indexOf('-W') >= 0) {
+        gLabel = 'This Week (' + gKey + ')';
+      } else {
+        // Format daily date as "Wed, Mar 26"
+        var parts = gKey.split('-');
+        var gDate = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+        var dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+        var monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        gLabel = dayNames[gDate.getDay()] + ', ' + monthNames[gDate.getMonth()] + ' ' + gDate.getDate();
+      }
+      html += '<div class="rf-source-group-header">' + esc(gLabel) + ' <span class="rf-source-group-count">' + weekGroups[gKey].length + '</span></div>';
+      for (var wt = 0; wt < weekGroups[gKey].length; wt++) {
+        html += buildSourceTask(weekGroups[gKey][wt], planContentSet);
+      }
     }
   }
   html += '</div>';
@@ -2168,6 +2203,15 @@ priCSSReflect() +
 '  max-width: 200px;\n' +
 '}\n' +
 '.rf-source-date i, .rf-source-meta i { margin-right: 3px; font-size: 9px; }\n' +
+'.rf-source-group-header {\n' +
+'  font-size: 11px; font-weight: 700; color: var(--rf-text-muted);\n' +
+'  padding: 8px 8px 4px; text-transform: uppercase; letter-spacing: 0.04em;\n' +
+'  border-bottom: 1px solid var(--rf-border); margin-bottom: 2px;\n' +
+'}\n' +
+'.rf-source-group-header:not(:first-child) { margin-top: 8px; }\n' +
+'.rf-source-group-count {\n' +
+'  font-weight: 400; color: var(--rf-text-faint); font-size: 10px;\n' +
+'}\n' +
 '.rf-source-date.overdue { color: var(--rf-red); }\n' +
 '.rf-source-date.today { color: var(--rf-orange); }\n' +
 '.rf-source-add {\n' +
