@@ -30,6 +30,9 @@ function onMessageFromPlugin(type, data) {
     case 'TIME_ESTIMATE_SET':
       handleTimeEstimateSet(data);
       break;
+    case 'PLAN_PRIORITY_CHANGED':
+      handlePlanPriorityChanged(data);
+      break;
     case 'SHOW_TOAST':
       showToast(data.message);
       break;
@@ -147,6 +150,32 @@ function handlePlanReordered(data) {
     // Also update the checkbox's data-line-index
     var cb = items[i].querySelector('.rf-plan-cb');
     if (cb) cb.dataset.lineIndex = indices[i];
+  }
+}
+
+function handlePlanPriorityChanged(data) {
+  // Find all plan items with this line index (could appear on Today and Plan tabs)
+  var items = document.querySelectorAll('.rf-plan-item[data-line-index="' + data.lineIndex + '"], .rf-today-item[data-line-index="' + data.lineIndex + '"]');
+  for (var i = 0; i < items.length; i++) {
+    var priEl = items[i].querySelector('.rf-plan-pri');
+    if (!priEl) continue;
+    priEl.dataset.level = data.level;
+
+    // Clear existing content and rebuild via DOM
+    while (priEl.firstChild) priEl.removeChild(priEl.firstChild);
+
+    if (data.level > 0) {
+      var labels = { 1: '!', 2: '!!', 3: '!!!' };
+      var classes = { 1: 'rf-pri-1', 2: 'rf-pri-2', 3: 'rf-pri-3' };
+      var badge = document.createElement('span');
+      badge.className = 'rf-pri ' + classes[data.level];
+      badge.textContent = labels[data.level];
+      priEl.appendChild(badge);
+    } else {
+      var flag = document.createElement('i');
+      flag.className = 'fa-solid fa-flag rf-pri-none';
+      priEl.appendChild(flag);
+    }
   }
 }
 
@@ -762,6 +791,12 @@ document.addEventListener('DOMContentLoaded', function() {
         break;
       case 'pickTime':
         handlePickTime(target);
+        break;
+      case 'cyclePlanPriority':
+        sendMessageToPlugin('cyclePlanPriority', JSON.stringify({ lineIndex: target.dataset.lineIndex }));
+        break;
+      case 'openDailyNote':
+        sendMessageToPlugin('openDailyNote', JSON.stringify({}));
         break;
     }
   });

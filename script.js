@@ -917,7 +917,8 @@ function buildPlanItem(task, index, editable) {
   var itemClass = 'rf-plan-item' + (isDone ? ' is-done' : '');
 
   var parsed = extractTimeEstimate(task.content);
-  var contentHTML = renderTaskContent(parsed.content);
+  var pri = extractPriority(parsed.content);
+  var contentHTML = renderTaskContent(pri.content);
   var estimateLabel = parsed.estimate;
 
   var html = '<div class="' + itemClass + '" draggable="' + (editable ? 'true' : 'false') + '" data-line-index="' + task.lineIndex + '" data-index="' + index + '">';
@@ -927,7 +928,21 @@ function buildPlanItem(task, index, editable) {
   html += '<span class="rf-plan-cb ' + cbClass + '" data-action="togglePlan" data-line-index="' + task.lineIndex + '">';
   html += '<i class="' + cbIcon + '"></i>';
   html += '</span>';
+
+  // Priority badge (clickable to cycle)
+  html += '<span class="rf-plan-pri" data-action="cyclePlanPriority" data-line-index="' + task.lineIndex + '" data-level="' + pri.level + '" title="Cycle priority">';
+  if (pri.level > 0) {
+    html += renderPriorityBadge(pri.level);
+  } else {
+    html += '<i class="fa-solid fa-flag rf-pri-none"></i>';
+  }
+  html += '</span>';
+
   html += '<span class="rf-plan-content">' + contentHTML + '</span>';
+
+  // Action buttons: open note + time estimate
+  html += '<span class="rf-plan-actions">';
+  html += '<button class="rf-plan-act-btn" data-action="openDailyNote" title="Open in editor"><i class="fa-solid fa-arrow-up-right-from-square"></i></button>';
   if (editable) {
     html += '<button class="rf-time-btn" data-action="showTimePicker" data-line-index="' + task.lineIndex + '" title="Set time estimate">';
     html += estimateLabel ? '<span class="rf-time-label">' + esc(estimateLabel) + '</span>' : '<i class="fa-regular fa-clock"></i>';
@@ -935,6 +950,7 @@ function buildPlanItem(task, index, editable) {
   } else if (estimateLabel) {
     html += '<span class="rf-time-badge">' + esc(estimateLabel) + '</span>';
   }
+  html += '</span>';
   html += '</div>';
   return html;
 }
@@ -1989,6 +2005,24 @@ function getInlineCSS() {
 '  flex: 1; min-width: 0; font-size: 14px; line-height: 1.5; word-break: break-word;\n' +
 '}\n' +
 
+/* ---- Plan item priority & actions ---- */
+'.rf-plan-pri {\n' +
+'  cursor: pointer; display: inline-flex; align-items: center;\n' +
+'  flex-shrink: 0; margin-right: 2px;\n' +
+'}\n' +
+'.rf-pri-none { color: var(--rf-text-faint); font-size: 11px; opacity: 0; transition: opacity 0.15s; }\n' +
+'.rf-plan-item:hover .rf-pri-none { opacity: 0.5; }\n' +
+'.rf-plan-actions {\n' +
+'  display: flex; align-items: center; gap: 4px; flex-shrink: 0;\n' +
+'}\n' +
+'.rf-plan-act-btn {\n' +
+'  background: none; border: none; color: var(--rf-text-faint);\n' +
+'  cursor: pointer; font-size: 11px; padding: 2px 4px; border-radius: 3px;\n' +
+'  opacity: 0; transition: opacity 0.15s;\n' +
+'}\n' +
+'.rf-plan-item:hover .rf-plan-act-btn { opacity: 0.6; }\n' +
+'.rf-plan-act-btn:hover { opacity: 1 !important; color: var(--rf-accent); }\n' +
+
 /* ---- Drag indicators ---- */
 '.rf-plan-item.is-dragging { opacity: 0.3; }\n' +
 '.rf-plan-item.drag-over-top { border-top: 2px solid var(--rf-accent); margin-top: -2px; }\n' +
@@ -2653,6 +2687,38 @@ async function onMessageFromHTMLView(actionType, data) {
         var clickConf = getSettings();
         var tasks = await fetchClickUpTasks(clickConf.clickupApiToken, clickConf.clickupTeamId);
         await sendToHTMLWindow(WINDOW_ID, 'CLICKUP_TASKS', { tasks: tasks });
+        break;
+
+      case 'cyclePlanPriority':
+        if (note) {
+          var priLineIdx = parseInt(msg.lineIndex);
+          var priParas = note.paragraphs;
+          if (priLineIdx >= 0 && priLineIdx < priParas.length) {
+            var priPara = priParas[priLineIdx];
+            var priContent = priPara.content || '';
+            var priParsed = extractPriority(priContent);
+            // Cycle: 0 → 1 → 2 → 3 → 0
+            var newLevel = (priParsed.level + 1) % 4;
+            var prefix = newLevel === 3 ? '!!! ' : newLevel === 2 ? '!! ' : newLevel === 1 ? '! ' : '';
+            priPara.content = prefix + priParsed.content;
+            note.updateParagraph(priPara);
+            // Send update to HTML
+            var newBadgeHTML = newLevel > 0 ? renderPriorityBadge(newLevel) : '<i class="fa-solid fa-flag rf-pri-none"></i>';
+            await sendToHTMLWindow(WINDOW_ID, 'PLAN_PRIORITY_CHANGED', {
+              lineIndex: priLineIdx,
+              level: newLevel,
+              badgeHTML: newBadgeHTML,
+            });
+          }
+        }
+        break;
+
+      case 'openDailyNote':
+        if (note) {
+          await CommandBar.onMainThread();
+          var todayDateStr = getTodayStr();
+          Editor.openNoteByDateString(todayDateStr);
+        }
         break;
 
       case 'saveShutdown':
