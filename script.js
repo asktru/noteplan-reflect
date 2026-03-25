@@ -2071,9 +2071,9 @@ function getInlineCSS() {
 '  font-size: 9px; font-weight: 800; margin-right: 4px;\n' +
 '  vertical-align: middle;\n' +
 '}\n' +
-'.rf-pri-3 { background: rgba(255,85,85,0.27); color: #FFB5B5; }\n' +
+'.rf-pri-3 { background: rgba(255,85,85,0.67); color: #FFB5B5; }\n' +
 '.rf-pri-2 { background: rgba(255,85,85,0.47); color: #FFCCCC; }\n' +
-'.rf-pri-1 { background: rgba(255,85,85,0.67); color: #FFDBBE; }\n' +
+'.rf-pri-1 { background: rgba(255,85,85,0.27); color: #FFDBBE; }\n' +
 
 /* ---- Source Tasks ---- */
 '.rf-source-task {\n' +
