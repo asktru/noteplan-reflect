@@ -1814,6 +1814,45 @@ function buildFullHTML(bodyContent, activeTab, timerStart) {
 // INLINE CSS
 // ============================================
 
+function npColorToCSS(hex) {
+  if (!hex || typeof hex !== 'string') return null;
+  hex = hex.replace(/^#/, '');
+  if (hex.length === 8) {
+    var a = parseInt(hex.substring(0, 2), 16) / 255;
+    var r = parseInt(hex.substring(2, 4), 16);
+    var g = parseInt(hex.substring(4, 6), 16);
+    var b = parseInt(hex.substring(6, 8), 16);
+    return 'rgba(' + r + ',' + g + ',' + b + ',' + a.toFixed(2) + ')';
+  }
+  if (hex.length === 6) return '#' + hex;
+  return null;
+}
+
+function getThemePriorityColors() {
+  var defaults = {
+    pri3: { bg: 'rgba(255,85,85,0.67)', color: '#FFB5B5' },
+    pri2: { bg: 'rgba(255,85,85,0.47)', color: '#FFCCCC' },
+    pri1: { bg: 'rgba(255,85,85,0.27)', color: '#FFDBBE' },
+  };
+  try {
+    if (typeof Editor === 'undefined' || !Editor.currentTheme || !Editor.currentTheme.values) return defaults;
+    var styles = Editor.currentTheme.values.styles || {};
+    var f1 = styles['flagged-1'], f2 = styles['flagged-2'], f3 = styles['flagged-3'];
+    return {
+      pri3: { bg: (f1 && f1.backgroundColor) ? npColorToCSS(f1.backgroundColor) || defaults.pri3.bg : defaults.pri3.bg, color: (f1 && f1.color) ? npColorToCSS(f1.color) || defaults.pri3.color : defaults.pri3.color },
+      pri2: { bg: (f2 && f2.backgroundColor) ? npColorToCSS(f2.backgroundColor) || defaults.pri2.bg : defaults.pri2.bg, color: (f2 && f2.color) ? npColorToCSS(f2.color) || defaults.pri2.color : defaults.pri2.color },
+      pri1: { bg: (f3 && f3.backgroundColor) ? npColorToCSS(f3.backgroundColor) || defaults.pri1.bg : defaults.pri1.bg, color: (f3 && f3.color) ? npColorToCSS(f3.color) || defaults.pri1.color : defaults.pri1.color },
+    };
+  } catch (e) { return defaults; }
+}
+
+function priCSSReflect() {
+  var c = getThemePriorityColors();
+  return '.rf-pri-3 { background: ' + c.pri3.bg + '; color: ' + c.pri3.color + '; }\n' +
+         '.rf-pri-2 { background: ' + c.pri2.bg + '; color: ' + c.pri2.color + '; }\n' +
+         '.rf-pri-1 { background: ' + c.pri1.bg + '; color: ' + c.pri1.color + '; }\n';
+}
+
 function getInlineCSS() {
   return '\n' +
 /* ---- Theme Variables ---- */
@@ -2071,9 +2110,7 @@ function getInlineCSS() {
 '  font-size: 9px; font-weight: 800; margin-right: 4px;\n' +
 '  vertical-align: middle;\n' +
 '}\n' +
-'.rf-pri-3 { background: rgba(255,85,85,0.67); color: #FFB5B5; }\n' +
-'.rf-pri-2 { background: rgba(255,85,85,0.47); color: #FFCCCC; }\n' +
-'.rf-pri-1 { background: rgba(255,85,85,0.27); color: #FFDBBE; }\n' +
+priCSSReflect() +
 
 /* ---- Source Tasks ---- */
 '.rf-source-task {\n' +
