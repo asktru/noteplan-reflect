@@ -757,10 +757,10 @@ function stopFocusSession(note, focusNotes) {
 // ============================================
 
 function extractPriority(content) {
-  // p1 = !!! (highest), p2 = !!, p3 = !
-  if (content.startsWith('!!! ')) return { level: 1, content: content.substring(4) };
+  // !!! = level 3 (highest), !! = level 2, ! = level 1 (lowest)
+  if (content.startsWith('!!! ')) return { level: 3, content: content.substring(4) };
   if (content.startsWith('!! ')) return { level: 2, content: content.substring(3) };
-  if (content.startsWith('! ')) return { level: 3, content: content.substring(2) };
+  if (content.startsWith('! ')) return { level: 1, content: content.substring(2) };
   return { level: 0, content: content };
 }
 
