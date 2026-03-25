@@ -1411,6 +1411,7 @@ function buildFocusTab(planTasks, timerState, focusMap) {
   html += '<button class="rf-notes-tb-btn" data-md-action="italic" title="Italic"><i class="fa-solid fa-italic"></i></button>';
   html += '<button class="rf-notes-tb-btn" data-md-action="code" title="Inline code"><i class="fa-solid fa-code"></i></button>';
   html += '<button class="rf-notes-tb-btn" data-md-action="link" title="Link"><i class="fa-solid fa-link"></i></button>';
+  html += '<button class="rf-notes-tb-btn" data-md-action="bullet" title="Bullet point"><i class="fa-solid fa-list"></i></button>';
   html += '<button class="rf-notes-tb-btn" data-md-action="task" title="Task"><i class="fa-solid fa-square-check"></i></button>';
   html += '</div>';
   html += '<div class="rf-focus-notes" id="focusNotes" contenteditable="true" data-placeholder="Session notes..."></div>';

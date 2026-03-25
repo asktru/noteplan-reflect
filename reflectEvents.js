@@ -676,6 +676,8 @@ function extractNotesMarkdown() {
       case 'a': return '[' + inner + '](' + (node.getAttribute('href') || '') + ')';
       case 'br': return '\n';
       case 'div': case 'p': return (inner ? '\n' + inner : '');
+      case 'ul': case 'ol': return inner;
+      case 'li': return '\n- ' + inner;
       default: return inner;
     }
   }
@@ -866,6 +868,9 @@ document.addEventListener('DOMContentLoaded', function() {
             range3.insertNode(linkEl);
           }
         }
+        break;
+      case 'bullet':
+        document.execCommand('insertUnorderedList', false, null);
         break;
       case 'task':
         // Insert a task line: "- [ ] "
