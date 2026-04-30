@@ -629,6 +629,20 @@ function addToPlan(note, content) {
   return true;
 }
 
+function removeFromPlan(note, lineIndex) {
+  var paras = note.paragraphs;
+  if (lineIndex < 0 || lineIndex >= paras.length) return false;
+  var p = paras[lineIndex];
+  // Only allow removal of plan-type lines (safety: don't nuke a heading)
+  var t = p.type;
+  if (t !== 'checklist' && t !== 'checklistDone' && t !== 'checklistCancelled' &&
+      t !== 'open' && t !== 'done' && t !== 'cancelled') {
+    return false;
+  }
+  note.removeParagraphAtIndex(lineIndex);
+  return true;
+}
+
 function togglePlanTask(note, lineIndex) {
   var paras = note.paragraphs;
   if (lineIndex < 0 || lineIndex >= paras.length) return;
@@ -925,8 +939,6 @@ function formatEstimateLabel(est) {
 
 function buildPlanItem(task, index, editable) {
   var isDone = task.isComplete;
-  var cbClass = isDone ? 'checklistDone' : 'checklist';
-  var cbIcon = isDone ? 'fa-solid fa-square-check' : 'fa-regular fa-square';
   var itemClass = 'rf-plan-item' + (isDone ? ' is-done' : '');
 
   var parsed = extractTimeEstimate(task.content);
@@ -934,15 +946,15 @@ function buildPlanItem(task, index, editable) {
   var contentHTML = renderTaskContent(pri.content);
   var estimateLabel = parsed.estimate;
 
-  var html = '<div class="' + itemClass + '" draggable="' + (editable ? 'true' : 'false') + '" data-line-index="' + task.lineIndex + '" data-index="' + index + '">';
+  var html = '<div class="' + itemClass + '" draggable="' + (editable ? 'true' : 'false') + '" data-line-index="' + task.lineIndex + '" data-index="' + index + '" data-content="' + esc(parsed.content) + '">';
   if (editable) {
     html += '<span class="rf-drag-handle"><i class="fa-solid fa-grip-vertical"></i></span>';
   }
-  html += '<span class="rf-plan-cb ' + cbClass + '" data-action="togglePlan" data-line-index="' + task.lineIndex + '">';
-  html += '<i class="' + cbIcon + '"></i>';
-  html += '</span>';
 
-  // Priority badge (clickable to cycle)
+  html += '<span class="rf-plan-content">' + contentHTML + '</span>';
+
+  // Action group on the right: priority, time estimate, remove
+  html += '<span class="rf-plan-actions">';
   html += '<span class="rf-plan-pri" data-action="cyclePlanPriority" data-line-index="' + task.lineIndex + '" data-level="' + pri.level + '" title="Cycle priority">';
   if (pri.level > 0) {
     html += renderPriorityBadge(pri.level);
@@ -950,12 +962,6 @@ function buildPlanItem(task, index, editable) {
     html += '<i class="fa-solid fa-flag rf-pri-none"></i>';
   }
   html += '</span>';
-
-  html += '<span class="rf-plan-content">' + contentHTML + '</span>';
-
-  // Action buttons: open note + time estimate
-  html += '<span class="rf-plan-actions">';
-  html += '<button class="rf-plan-act-btn" data-action="openDailyNote" title="Open in editor"><i class="fa-solid fa-arrow-up-right-from-square"></i></button>';
   if (editable) {
     html += '<button class="rf-time-btn" data-action="showTimePicker" data-line-index="' + task.lineIndex + '" title="Set time estimate">';
     html += estimateLabel ? '<span class="rf-time-label">' + esc(estimateLabel) + '</span>' : '<i class="fa-regular fa-clock"></i>';
@@ -963,16 +969,19 @@ function buildPlanItem(task, index, editable) {
   } else if (estimateLabel) {
     html += '<span class="rf-time-badge">' + esc(estimateLabel) + '</span>';
   }
+  if (editable) {
+    html += '<button class="rf-plan-act-btn rf-plan-remove" data-action="removeFromPlan" data-line-index="' + task.lineIndex + '" title="Remove from plan"><i class="fa-solid fa-xmark"></i></button>';
+  }
   html += '</span>';
   html += '</div>';
   return html;
 }
 
-function buildSourceTask(task, planContentSet) {
+function buildSourceTask(task, planContentSet, omitNoteTitle) {
   var isInPlan = planContentSet && planContentSet[task.content];
   var contentHTML = renderTaskContent(task.content);
   var meta = '';
-  if (task.noteTitle) {
+  if (task.noteTitle && !omitNoteTitle) {
     meta += '<span class="rf-source-meta"><i class="fa-solid fa-file-lines"></i> ' + esc(task.noteTitle) + '</span>';
   }
   if (task.scheduledDate) {
@@ -1152,6 +1161,38 @@ function buildTodayTab(planTasks, focusMap, timerState) {
   return html;
 }
 
+function buildSourceTasksGroupedByNote(tasks, planContentSet) {
+  // Group preserving first-seen order per filename.
+  var groupOrder = [];
+  var groups = {};
+  for (var i = 0; i < tasks.length; i++) {
+    var t = tasks[i];
+    var key = t.filename || ('__no_file__:' + (t.noteTitle || ''));
+    if (!groups[key]) {
+      groups[key] = { filename: t.filename || '', noteTitle: t.noteTitle || t.filename || 'Untitled', items: [] };
+      groupOrder.push(key);
+    }
+    groups[key].items.push(t);
+  }
+
+  var html = '';
+  for (var g = 0; g < groupOrder.length; g++) {
+    var grp = groups[groupOrder[g]];
+    var headerCls = 'rf-source-group-header' + (grp.filename ? ' rf-source-group-clickable' : '');
+    var actionAttrs = grp.filename
+      ? ' data-action="openNoteFile" data-filename="' + esc(grp.filename) + '" title="Open note in a new window"'
+      : '';
+    html += '<div class="' + headerCls + '"' + actionAttrs + '>' +
+            esc(grp.noteTitle) +
+            ' <span class="rf-source-group-count">' + grp.items.length + '</span>' +
+            '</div>';
+    for (var k = 0; k < grp.items.length; k++) {
+      html += buildSourceTask(grp.items[k], planContentSet, true);
+    }
+  }
+  return html;
+}
+
 function buildPlanTab(data) {
   var planTasks = data.planTasks;
   var calendarEvents = data.calendarEvents || [];
@@ -1215,6 +1256,7 @@ function buildPlanTab(data) {
   html += '<div class="rf-sources-panel">';
   html += '<div class="rf-source-tabs">';
   html += '<button class="rf-source-tab active" data-source="calendar"><i class="fa-regular fa-calendar"></i> Calendar</button>';
+  html += '<button class="rf-source-tab" data-source="overdue">Overdue</button>';
   html += '<button class="rf-source-tab" data-source="today">Today</button>';
   html += '<button class="rf-source-tab" data-source="week">This Week</button>';
   if (hasClickUp) {
@@ -1234,14 +1276,36 @@ function buildPlanTab(data) {
   }
   html += '</div>';
 
-  // Today (overdue + today, daily dates only)
+  // Split scheduledToday into Overdue (date < today) and Today (date == today),
+  // and filter out checklist-type items — only show open tasks.
+  var todayStrForSplit = getTodayStr();
+  var overdueTasks = [];
+  var todayTasksList = [];
+  for (var stsi = 0; stsi < scheduledToday.length; stsi++) {
+    var stItem = scheduledToday[stsi];
+    if (stItem.type !== 'open') continue; // exclude checklist items
+    if (stItem.scheduledDate && stItem.scheduledDate < todayStrForSplit) {
+      overdueTasks.push(stItem);
+    } else {
+      todayTasksList.push(stItem);
+    }
+  }
+
+  // Overdue
+  html += '<div class="rf-source-list" data-source="overdue">';
+  if (overdueTasks.length === 0) {
+    html += '<div class="rf-empty">No overdue tasks</div>';
+  } else {
+    html += buildSourceTasksGroupedByNote(overdueTasks, planContentSet);
+  }
+  html += '</div>';
+
+  // Today
   html += '<div class="rf-source-list" data-source="today">';
-  if (scheduledToday.length === 0) {
+  if (todayTasksList.length === 0) {
     html += '<div class="rf-empty">No tasks scheduled for today</div>';
   } else {
-    for (var st = 0; st < scheduledToday.length; st++) {
-      html += buildSourceTask(scheduledToday[st], planContentSet);
-    }
+    html += buildSourceTasksGroupedByNote(todayTasksList, planContentSet);
   }
   html += '</div>';
 
@@ -2223,6 +2287,8 @@ priCSSReflect() +
 '  border-bottom: 1px solid var(--rf-border); margin-bottom: 2px;\n' +
 '}\n' +
 '.rf-source-group-header:not(:first-child) { margin-top: 8px; }\n' +
+'.rf-source-group-clickable { cursor: pointer; }\n' +
+'.rf-source-group-clickable:hover { color: var(--rf-text); text-decoration: underline; }\n' +
 '.rf-source-group-count {\n' +
 '  font-weight: 400; color: var(--rf-text-faint); font-size: 10px;\n' +
 '}\n' +
@@ -2668,6 +2734,14 @@ async function onMessageFromHTMLView(actionType, data) {
         }
         break;
 
+      case 'removeFromPlan':
+        if (note && msg.lineIndex !== undefined) {
+          removeFromPlan(note, parseInt(msg.lineIndex, 10));
+          invalidateTaskCache();
+          // No re-render: front-end updates the UI optimistically.
+        }
+        break;
+
       case 'setTimeEstimate':
         if (note && msg.lineIndex !== undefined) {
           setTimeEstimate(note, parseInt(msg.lineIndex, 10), msg.estimate || '');
@@ -2820,6 +2894,14 @@ async function onMessageFromHTMLView(actionType, data) {
         if (msg.filename) {
           await CommandBar.onMainThread();
           Editor.openNoteByFilename(msg.filename);
+        }
+        break;
+
+      case 'openNoteFile':
+        if (msg.filename) {
+          await CommandBar.onMainThread();
+          // Open in a separate floating window (newWindow=true)
+          Editor.openNoteByFilename(msg.filename, true);
         }
         break;
 

@@ -59,20 +59,15 @@ function handleTaskAddedToPlan(data) {
     item.draggable = true;
     item.dataset.lineIndex = data.lineIndex;
     item.dataset.index = planList.querySelectorAll('.rf-plan-item').length;
+    // Store content for matching on removal — strip trailing time estimate to match source data-content
+    var planContentForMatch = (data.content || '').replace(/\s*\*-\s*(?:\d+(?:\.\d+)?h(?:\s*\d+m)?|\d+m)\*\s*$/, '');
+    item.dataset.content = planContentForMatch;
 
     var handle = document.createElement('span');
     handle.className = 'rf-drag-handle';
     var handleIcon = document.createElement('i');
     handleIcon.className = 'fa-solid fa-grip-vertical';
     handle.appendChild(handleIcon);
-
-    var cb = document.createElement('span');
-    cb.className = 'rf-plan-cb checklist';
-    cb.dataset.action = 'togglePlan';
-    cb.dataset.lineIndex = data.lineIndex;
-    var cbIcon = document.createElement('i');
-    cbIcon.className = 'fa-regular fa-square';
-    cb.appendChild(cbIcon);
 
     var content = document.createElement('span');
     content.className = 'rf-plan-content';
@@ -82,6 +77,19 @@ function handleTaskAddedToPlan(data) {
     } else {
       content.textContent = data.originalContent || '';
     }
+
+    var actions = document.createElement('span');
+    actions.className = 'rf-plan-actions';
+
+    var pri = document.createElement('span');
+    pri.className = 'rf-plan-pri';
+    pri.dataset.action = 'cyclePlanPriority';
+    pri.dataset.lineIndex = data.lineIndex;
+    pri.dataset.level = '0';
+    pri.title = 'Cycle priority';
+    var priIcon = document.createElement('i');
+    priIcon.className = 'fa-solid fa-flag rf-pri-none';
+    pri.appendChild(priIcon);
 
     var timeBtn = document.createElement('button');
     timeBtn.className = 'rf-time-btn';
@@ -99,10 +107,22 @@ function handleTaskAddedToPlan(data) {
       timeBtn.appendChild(clockIcon);
     }
 
+    var removeBtn = document.createElement('button');
+    removeBtn.className = 'rf-plan-act-btn rf-plan-remove';
+    removeBtn.dataset.action = 'removeFromPlan';
+    removeBtn.dataset.lineIndex = data.lineIndex;
+    removeBtn.title = 'Remove from plan';
+    var removeIcon = document.createElement('i');
+    removeIcon.className = 'fa-solid fa-xmark';
+    removeBtn.appendChild(removeIcon);
+
+    actions.appendChild(pri);
+    actions.appendChild(timeBtn);
+    actions.appendChild(removeBtn);
+
     item.appendChild(handle);
-    item.appendChild(cb);
     item.appendChild(content);
-    item.appendChild(timeBtn);
+    item.appendChild(actions);
     planList.appendChild(item);
 
     // Attach drag events to new item
@@ -199,6 +219,89 @@ function handleTimeEstimateSet(data) {
   }
   // Update total in header
   updatePlanTotal();
+}
+
+function handleRemoveFromPlan(target) {
+  var lineIndex = parseInt(target.dataset.lineIndex, 10);
+  if (isNaN(lineIndex)) return;
+
+  var item = target.closest('.rf-plan-item');
+  if (!item) return;
+
+  var planContent = item.dataset.content || '';
+
+  // 1. Remove the item from the plan list
+  item.remove();
+
+  // 2. Show empty state if list is now empty
+  var planList = document.getElementById('planList');
+  if (planList && planList.querySelectorAll('.rf-plan-item').length === 0) {
+    var empty = document.createElement('div');
+    empty.className = 'rf-empty';
+    empty.textContent = 'Add tasks from the right panel to plan your day';
+    planList.appendChild(empty);
+  }
+
+  // 3. Decrement line indices on subsequent plan items (the removed line shifted them)
+  // Plan tab uses .rf-plan-item; Today tab uses .rf-today-item — handle both in case of cross-tab DOM presence.
+  var allPlanEls = document.querySelectorAll('.rf-plan-item, .rf-today-item');
+  allPlanEls.forEach(function(el) {
+    var li = parseInt(el.dataset.lineIndex, 10);
+    if (!isNaN(li) && li > lineIndex) {
+      var newLi = li - 1;
+      el.dataset.lineIndex = newLi;
+      // Update child elements that carry their own data-line-index
+      var childrenWithLi = el.querySelectorAll('[data-line-index]');
+      childrenWithLi.forEach(function(c) {
+        var cli = parseInt(c.dataset.lineIndex, 10);
+        if (!isNaN(cli) && cli === li) c.dataset.lineIndex = newLi;
+      });
+    }
+  });
+
+  // 4. Unmark matching source tasks (revert "+" button)
+  if (planContent) {
+    var sourceMatches = document.querySelectorAll(
+      '.rf-source-task[data-content="' + cssEscape(planContent) + '"], ' +
+      '.rf-source-task[data-calendar-link="' + cssEscape(planContent) + '"]'
+    );
+    sourceMatches.forEach(function(el) {
+      el.classList.remove('in-plan');
+      var added = el.querySelector('.rf-source-added');
+      if (added) {
+        var addBtn = document.createElement('button');
+        addBtn.className = 'rf-source-add';
+        var calLink = el.dataset.calendarLink;
+        if (calLink) {
+          addBtn.dataset.action = 'addCalendarToPlan';
+          addBtn.dataset.content = el.dataset.content || '';
+          addBtn.dataset.duration = el.dataset.duration || '';
+          addBtn.dataset.calendarLink = calLink;
+        } else {
+          addBtn.dataset.action = 'addToPlan';
+          addBtn.dataset.content = el.dataset.content || '';
+          var clickupId = el.dataset.clickupId;
+          if (clickupId) addBtn.dataset.clickupId = clickupId;
+        }
+        addBtn.title = 'Add to plan (S)';
+        addBtn.innerHTML = '<i class="fa-solid fa-plus"></i>';
+        added.replaceWith(addBtn);
+      }
+    });
+  }
+
+  // 5. Update remaining count + total
+  updatePlanTotal();
+
+  // 6. Persist to backend (no reply expected)
+  sendMessageToPlugin('removeFromPlan', JSON.stringify({ lineIndex: lineIndex }));
+
+  showToast('Removed from plan');
+}
+
+// Escape a string for use inside a CSS attribute selector value
+function cssEscape(s) {
+  return String(s).replace(/(["\\])/g, '\\$1');
 }
 
 function updatePlanTotal() {
@@ -759,6 +862,9 @@ document.addEventListener('DOMContentLoaded', function() {
       case 'togglePlan':
         handlePlanToggle(target);
         break;
+      case 'removeFromPlan':
+        handleRemoveFromPlan(target);
+        break;
       case 'startFocus':
         handleStartFocus(target);
         break;
@@ -799,6 +905,11 @@ document.addEventListener('DOMContentLoaded', function() {
         break;
       case 'openDailyNote':
         sendMessageToPlugin('openDailyNote', JSON.stringify({}));
+        break;
+      case 'openNoteFile':
+        if (target.dataset.filename) {
+          sendMessageToPlugin('openNoteFile', JSON.stringify({ filename: target.dataset.filename }));
+        }
         break;
     }
   });
