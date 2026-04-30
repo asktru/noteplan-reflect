@@ -435,6 +435,29 @@ function toggleNav() {
   if (backdrop) backdrop.classList.toggle('open');
 }
 
+function showEditFocusStartTime(btn) {
+  var row = document.getElementById('focusStarted');
+  if (!row) return;
+  var current = btn.dataset.current || '';
+  row.innerHTML =
+    '<div class="rf-focus-started-form">' +
+      '<input type="time" id="focusStartTimeInput" value="' + current + '" />' +
+      '<button class="cancel" data-action="cancelEditFocusStartTime">Cancel</button>' +
+      '<button data-action="saveFocusStartTime">Save</button>' +
+    '</div>';
+  var input = document.getElementById('focusStartTimeInput');
+  if (input) {
+    input.focus();
+    input.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') {
+        sendMessageToPlugin('setFocusStartTime', JSON.stringify({ time: input.value }));
+      } else if (e.key === 'Escape') {
+        sendMessageToPlugin('switchTab', JSON.stringify({ tab: 'focus' }));
+      }
+    });
+  }
+}
+
 function toggleTimeline() {
   var panel = document.querySelector('.rf-today-timeline-panel');
   var backdrop = document.querySelector('.rf-timeline-backdrop');
@@ -933,6 +956,18 @@ document.addEventListener('DOMContentLoaded', function() {
         break;
       case 'toggleTimeline':
         toggleTimeline();
+        break;
+      case 'editFocusStartTime':
+        showEditFocusStartTime(target);
+        break;
+      case 'saveFocusStartTime':
+        var input = document.getElementById('focusStartTimeInput');
+        if (input && input.value) {
+          sendMessageToPlugin('setFocusStartTime', JSON.stringify({ time: input.value }));
+        }
+        break;
+      case 'cancelEditFocusStartTime':
+        sendMessageToPlugin('switchTab', JSON.stringify({ tab: 'focus' }));
         break;
       case 'addToPlan':
         handleAddToPlan(target);

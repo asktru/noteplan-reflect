@@ -783,6 +783,39 @@ function startFocusSession(note, taskContent) {
   saveTimerState({ startTime: Date.now(), taskContent: taskContent });
 }
 
+// Update an active focus session's start time (e.g. when the user forgot to
+// start the timer right away). Rewrites the time prefix on the most recent
+// matching "*focusing on:* <task>" line under ## Focus and updates timerState.
+function updateFocusStartTime(note, newStartMs) {
+  var config = getSettings();
+  var timer = config.timerState;
+  if (!timer || !timer.startTime || !timer.taskContent) return false;
+
+  // 1. Update timer state.
+  saveTimerState({ startTime: newStartMs, taskContent: timer.taskContent });
+
+  // 2. Compute new HH:MM string from the timestamp.
+  var d = new Date(newStartMs);
+  var newTimeStr = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+
+  // 3. Rewrite the most recent matching log line under ## Focus.
+  var range = findSectionRange(note, 'Focus', 2);
+  if (!range) return true;
+  var paras = note.paragraphs;
+  var marker = ' *focusing on:* ' + timer.taskContent;
+  for (var i = range.end - 1; i >= range.start; i--) {
+    var p = paras[i];
+    var c = p.content || '';
+    var m = c.match(/^(\d{2}:\d{2})( \*focusing on:\* .+)$/);
+    if (m && c.indexOf(marker) >= 0) {
+      p.content = newTimeStr + m[2];
+      note.updateParagraph(p);
+      break;
+    }
+  }
+  return true;
+}
+
 function stopFocusSession(note, focusNotes) {
   var config = getSettings();
   var timer = config.timerState;
@@ -1163,7 +1196,9 @@ function buildTodayPlanItem(task, index, totalCount, focusMap, timerState) {
 // Build the right-hand timeline preview for the Today tab.
 // Calendar events sit at their scheduled times; remaining incomplete tasks are
 // projected sequentially in plan order, splitting into segments around events.
-function buildTodayTimeline(planTasks) {
+function buildTodayTimeline(planTasks, focusMap, timerState) {
+  focusMap = focusMap || {};
+  timerState = timerState || {};
   var PX_PER_MIN = 1; // 60 px per hour
   var DAY_MIN = 24 * 60;
 
@@ -1195,10 +1230,20 @@ function buildTodayTimeline(planTasks) {
       });
     } else if (!pt.isComplete) {
       var pri = extractPriority(parsed.content);
-      var taskDur = parseEstimateMinutes(parsed.estimate);
-      if (taskDur > 0) {
-        tasksToProject.push({ duration: taskDur, title: pri.content, lineIndex: pt.lineIndex });
+      var estMin = parseEstimateMinutes(parsed.estimate);
+      if (estMin <= 0) continue;
+      // Subtract time already tracked today via completed focus sessions.
+      var trackedMin = focusMap[parsed.content] || 0;
+      // If a focus session is currently running on this task, subtract its
+      // live elapsed time too — that work is happening "now" and shouldn't be
+      // double-counted on the projected timeline.
+      var liveMin = 0;
+      if (timerState.startTime && timerState.taskContent === parsed.content) {
+        liveMin = Math.max(0, (Date.now() - timerState.startTime) / 60000);
       }
+      var remaining = Math.max(0, estMin - trackedMin - liveMin);
+      if (remaining <= 0) continue;
+      tasksToProject.push({ duration: remaining, title: pri.content, lineIndex: pt.lineIndex });
     }
   }
 
@@ -1355,7 +1400,7 @@ function buildTodayTab(planTasks, focusMap, timerState) {
   html += '<div class="rf-today-timeline-panel">';
   html += '<div class="rf-panel-header"><h2 class="rf-panel-title">Timeline</h2></div>';
   html += '<div class="rf-tl-scroll">';
-  html += buildTodayTimeline(planTasks);
+  html += buildTodayTimeline(planTasks, focusMap, timerState);
   html += '</div>';
   html += '</div>';
 
@@ -1640,6 +1685,16 @@ function buildFocusTab(planTasks, timerState, focusMap) {
   html += '<div class="rf-focus-task">' + renderTaskContent(displayContent) + '</div>';
 
   html += '<div class="rf-focus-timer" id="focusTimer">' + (isTimerActive ? '--:--' : '00:00') + '</div>';
+
+  if (isTimerActive) {
+    var startD = new Date(timerState.startTime);
+    var startHM = String(startD.getHours()).padStart(2, '0') + ':' + String(startD.getMinutes()).padStart(2, '0');
+    html += '<div class="rf-focus-started" id="focusStarted">';
+    html += '<span class="rf-focus-started-text">Started at <strong>' + esc(startHM) + '</strong></span>';
+    html += '<button class="rf-focus-started-edit" data-action="editFocusStartTime" data-current="' + esc(startHM) + '" title="Edit start time">';
+    html += '<i class="fa-solid fa-pen-to-square"></i></button>';
+    html += '</div>';
+  }
 
   // Time breakdown stats
   html += '<div class="rf-focus-stats" id="focusStats">';
@@ -2660,6 +2715,37 @@ priCSSReflect() +
 '  margin: 4px 0; padding-left: 20px;\n' +
 '}\n' +
 '.rf-focus-notes li { margin: 2px 0; }\n' +
+'.rf-focus-started {\n' +
+'  display: flex; align-items: center; justify-content: center; gap: 6px;\n' +
+'  margin-bottom: 16px; font-size: 12px; color: var(--rf-text-muted);\n' +
+'}\n' +
+'.rf-focus-started-text strong {\n' +
+'  color: var(--rf-text); font-variant-numeric: tabular-nums; font-weight: 600;\n' +
+'}\n' +
+'.rf-focus-started-edit {\n' +
+'  background: none; border: none; color: var(--rf-text-faint);\n' +
+'  cursor: pointer; padding: 2px 4px; border-radius: 3px;\n' +
+'  font-size: 11px; transition: color 0.15s, background 0.15s;\n' +
+'}\n' +
+'.rf-focus-started-edit:hover { background: var(--rf-border); color: var(--rf-accent); }\n' +
+'.rf-focus-started-form {\n' +
+'  display: flex; align-items: center; justify-content: center; gap: 6px;\n' +
+'}\n' +
+'.rf-focus-started-form input {\n' +
+'  background: var(--rf-bg-card); color: var(--rf-text);\n' +
+'  border: 1px solid var(--rf-border-strong); border-radius: 3px;\n' +
+'  padding: 3px 6px; font-size: 12px; font-family: inherit;\n' +
+'  font-variant-numeric: tabular-nums;\n' +
+'}\n' +
+'.rf-focus-started-form button {\n' +
+'  background: var(--rf-accent); color: white; border: none;\n' +
+'  padding: 4px 10px; border-radius: 3px; cursor: pointer;\n' +
+'  font-size: 11px; font-weight: 600;\n' +
+'}\n' +
+'.rf-focus-started-form button.cancel {\n' +
+'  background: transparent; color: var(--rf-text-muted);\n' +
+'  border: 1px solid var(--rf-border-strong);\n' +
+'}\n' +
 '.rf-focus-stats {\n' +
 '  display: flex; gap: 20px; justify-content: center; flex-wrap: wrap;\n' +
 '}\n' +
@@ -3088,6 +3174,27 @@ async function onMessageFromHTMLView(actionType, data) {
         if (note) {
           stopFocusSession(note, msg.notes || '');
           await showReflect('focus');
+        }
+        break;
+
+      case 'setFocusStartTime':
+        if (note && msg.time) {
+          var hm = String(msg.time).match(/^(\d{1,2}):(\d{2})$/);
+          if (hm) {
+            var hh = parseInt(hm[1], 10);
+            var mm = parseInt(hm[2], 10);
+            if (hh >= 0 && hh <= 23 && mm >= 0 && mm <= 59) {
+              var nowD = new Date();
+              var newD = new Date(nowD.getFullYear(), nowD.getMonth(), nowD.getDate(), hh, mm, 0, 0);
+              // If the chosen time is in the future, treat it as belonging to
+              // yesterday — handles overnight sessions started before midnight.
+              if (newD.getTime() > Date.now()) {
+                newD.setDate(newD.getDate() - 1);
+              }
+              updateFocusStartTime(note, newD.getTime());
+              await showReflect('focus');
+            }
+          }
         }
         break;
 
