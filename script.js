@@ -2864,7 +2864,25 @@ async function onMessageFromHTMLView(actionType, data) {
       case 'fetchClickUp':
         var clickConf = getSettings();
         var tasks = await fetchClickUpTasks(clickConf.clickupApiToken, clickConf.clickupTeamId);
-        await sendToHTMLWindow(WINDOW_ID, 'CLICKUP_TASKS', { tasks: tasks });
+        // Build sets so the front-end can mark tasks that are already in today's plan.
+        var planTasksForCu = note ? getPlanTasks(note) : [];
+        var addedClickupIds = {};
+        var addedContents = {};
+        for (var pti = 0; pti < planTasksForCu.length; pti++) {
+          var pc = planTasksForCu[pti].content || '';
+          var idMatch = pc.match(/\/t\/([A-Za-z0-9]+)\)/);
+          if (idMatch) addedClickupIds[idMatch[1]] = true;
+          // Also key by task name (with time estimate stripped) for plain manual adds.
+          var stripped = extractTimeEstimate(pc).content;
+          // Strip trailing ClickUp markdown link if present.
+          stripped = stripped.replace(/\s*\[ClickUp\]\([^)]+\)\s*$/, '').trim();
+          if (stripped) addedContents[stripped] = true;
+        }
+        await sendToHTMLWindow(WINDOW_ID, 'CLICKUP_TASKS', {
+          tasks: tasks,
+          addedClickupIds: addedClickupIds,
+          addedContents: addedContents,
+        });
         break;
 
       case 'cyclePlanPriority':

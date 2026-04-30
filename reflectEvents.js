@@ -19,7 +19,7 @@ var dragSrcEl = null;
 function onMessageFromPlugin(type, data) {
   switch (type) {
     case 'CLICKUP_TASKS':
-      renderClickUpTasks(data.tasks || []);
+      renderClickUpTasks(data.tasks || [], data.addedClickupIds || {}, data.addedContents || {});
       break;
     case 'TASK_ADDED_TO_PLAN':
       handleTaskAddedToPlan(data);
@@ -453,7 +453,9 @@ function handleSourceTabClick(tabEl) {
 // Render ClickUp tasks using DOM manipulation (no innerHTML for safety).
 // The task data comes from our own plugin (trusted source via ClickUp API),
 // not from user-generated or web-sourced content.
-function renderClickUpTasks(tasks) {
+function renderClickUpTasks(tasks, addedClickupIds, addedContents) {
+  addedClickupIds = addedClickupIds || {};
+  addedContents = addedContents || {};
   var list = document.querySelector('.rf-source-list[data-source="clickup"]');
   if (!list) return;
 
@@ -495,22 +497,34 @@ function renderClickUpTasks(tasks) {
 
     for (var i = 0; i < groupTasks.length; i++) {
       var t = groupTasks[i];
+      var isInPlan = (t.clickupId && addedClickupIds[t.clickupId]) ||
+                     (t.content && addedContents[t.content]);
+
       var taskEl = document.createElement('div');
-      taskEl.className = 'rf-source-task';
+      taskEl.className = 'rf-source-task' + (isInPlan ? ' in-plan' : '');
       taskEl.dataset.content = t.content || '';
       if (t.clickupId) taskEl.dataset.clickupId = t.clickupId;
 
-      // 1. Add button on the LEFT (consistent with other source tabs)
-      var addBtn = document.createElement('button');
-      addBtn.className = 'rf-source-add';
-      addBtn.dataset.action = 'addToPlan';
-      addBtn.dataset.content = t.content || '';
-      if (t.clickupId) addBtn.dataset.clickupId = t.clickupId;
-      addBtn.title = 'Add to plan (S)';
-      var addIcon = document.createElement('i');
-      addIcon.className = 'fa-solid fa-plus';
-      addBtn.appendChild(addIcon);
-      taskEl.appendChild(addBtn);
+      // 1. Left side: "+" button, or check mark if already in today's plan
+      if (isInPlan) {
+        var added = document.createElement('span');
+        added.className = 'rf-source-added';
+        var checkIcon = document.createElement('i');
+        checkIcon.className = 'fa-solid fa-check';
+        added.appendChild(checkIcon);
+        taskEl.appendChild(added);
+      } else {
+        var addBtn = document.createElement('button');
+        addBtn.className = 'rf-source-add';
+        addBtn.dataset.action = 'addToPlan';
+        addBtn.dataset.content = t.content || '';
+        if (t.clickupId) addBtn.dataset.clickupId = t.clickupId;
+        addBtn.title = 'Add to plan (S)';
+        var addIcon = document.createElement('i');
+        addIcon.className = 'fa-solid fa-plus';
+        addBtn.appendChild(addIcon);
+        taskEl.appendChild(addBtn);
+      }
 
       // 2. Body
       var body = document.createElement('div');
