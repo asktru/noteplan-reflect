@@ -1160,6 +1160,161 @@ function buildTodayPlanItem(task, index, totalCount, focusMap, timerState) {
   return html;
 }
 
+// Build the right-hand timeline preview for the Today tab.
+// Calendar events sit at their scheduled times; remaining incomplete tasks are
+// projected sequentially in plan order, splitting into segments around events.
+function buildTodayTimeline(planTasks) {
+  var PX_PER_MIN = 1; // 60 px per hour
+  var DAY_MIN = 24 * 60;
+
+  function formatClock(mins) {
+    mins = ((mins % DAY_MIN) + DAY_MIN) % DAY_MIN;
+    var h = Math.floor(mins / 60);
+    var m = mins % 60;
+    return (h < 10 ? '0' : '') + h + ':' + (m < 10 ? '0' : '') + m;
+  }
+
+  // 1. Separate plan tasks into calendar events vs. projectable tasks.
+  var events = [];
+  var tasksToProject = [];
+  for (var i = 0; i < planTasks.length; i++) {
+    var pt = planTasks[i];
+    var parsed = extractTimeEstimate(pt.content);
+    var cal = parseCalendarLink(parsed.content);
+    if (cal.found && cal.time) {
+      var hm = cal.time.match(/^(\d{2}):(\d{2})$/);
+      if (!hm) continue;
+      var startMin = parseInt(hm[1], 10) * 60 + parseInt(hm[2], 10);
+      var durMin = parseEstimateMinutes(parsed.estimate) || 30;
+      events.push({
+        startMin: startMin,
+        endMin: startMin + durMin,
+        title: cal.title || 'Calendar event',
+        color: cal.color || '#5A9FD4',
+        isDone: pt.isComplete,
+      });
+    } else if (!pt.isComplete) {
+      var pri = extractPriority(parsed.content);
+      var taskDur = parseEstimateMinutes(parsed.estimate);
+      if (taskDur > 0) {
+        tasksToProject.push({ duration: taskDur, title: pri.content, lineIndex: pt.lineIndex });
+      }
+    }
+  }
+
+  events.sort(function(a, b) { return a.startMin - b.startMin; });
+
+  // 2. Project tasks in plan order, splitting around events.
+  var nowDate = new Date();
+  var nowMin = nowDate.getHours() * 60 + nowDate.getMinutes();
+  var cursor = nowMin;
+  // If we're currently inside an event, skip to its end before projecting.
+  for (var ei = 0; ei < events.length; ei++) {
+    if (events[ei].startMin <= cursor && events[ei].endMin > cursor) {
+      cursor = events[ei].endMin;
+    }
+  }
+
+  var segments = [];
+  var eventIdx = 0;
+  // Advance eventIdx past events already finished before cursor.
+  while (eventIdx < events.length && events[eventIdx].endMin <= cursor) eventIdx++;
+
+  for (var ti = 0; ti < tasksToProject.length; ti++) {
+    var t = tasksToProject[ti];
+    var remaining = t.duration;
+    var partIndex = 0;
+    while (remaining > 0 && cursor < DAY_MIN) {
+      // Skip events that ended at or before cursor.
+      while (eventIdx < events.length && events[eventIdx].endMin <= cursor) eventIdx++;
+      var nextEventStart = (eventIdx < events.length) ? events[eventIdx].startMin : DAY_MIN;
+      if (nextEventStart <= cursor) {
+        // Cursor is at or inside this event; jump to its end.
+        cursor = events[eventIdx].endMin;
+        eventIdx++;
+        continue;
+      }
+      var available = nextEventStart - cursor;
+      var segLen = Math.min(remaining, available);
+      segments.push({
+        startMin: cursor,
+        endMin: cursor + segLen,
+        title: t.title,
+        lineIndex: t.lineIndex,
+        partIndex: partIndex,
+        isContinuation: partIndex > 0,
+      });
+      cursor += segLen;
+      remaining -= segLen;
+      partIndex++;
+    }
+  }
+
+  // 3. Determine vertical window.
+  if (events.length === 0 && segments.length === 0) {
+    return '<div class="rf-tl-empty">Add tasks with time estimates to see them on the timeline.</div>';
+  }
+  var minMin = nowMin;
+  var maxMin = nowMin;
+  for (var ee = 0; ee < events.length; ee++) {
+    if (events[ee].startMin < minMin) minMin = events[ee].startMin;
+    if (events[ee].endMin > maxMin) maxMin = events[ee].endMin;
+  }
+  for (var ss = 0; ss < segments.length; ss++) {
+    if (segments[ss].endMin > maxMin) maxMin = segments[ss].endMin;
+  }
+  // Round to whole hours and pad ±1h.
+  var windowStart = Math.max(0, Math.floor(minMin / 60) * 60 - 60);
+  var windowEnd = Math.min(DAY_MIN, Math.ceil(maxMin / 60) * 60 + 60);
+
+  var totalHeight = (windowEnd - windowStart) * PX_PER_MIN;
+
+  // 4. Render.
+  var html = '<div class="rf-tl-track" style="height:' + totalHeight + 'px;">';
+
+  // Hour gridlines + labels
+  for (var h = windowStart / 60; h <= windowEnd / 60; h++) {
+    var top = (h * 60 - windowStart) * PX_PER_MIN;
+    var hourLabel = (h < 10 ? '0' : '') + h + ':00';
+    html += '<div class="rf-tl-hour" style="top:' + top + 'px;">' +
+            '<span class="rf-tl-hour-label">' + hourLabel + '</span></div>';
+  }
+
+  // Projected task segments
+  for (var sg = 0; sg < segments.length; sg++) {
+    var s = segments[sg];
+    var sTop = (s.startMin - windowStart) * PX_PER_MIN;
+    var sHeight = Math.max(2, (s.endMin - s.startMin) * PX_PER_MIN);
+    var label = renderTaskContent(s.title);
+    if (s.isContinuation) label += ' <span class="rf-tl-cont">(cont.)</span>';
+    html += '<div class="rf-tl-task" style="top:' + sTop + 'px;height:' + sHeight + 'px;" data-line-index="' + s.lineIndex + '" title="' + esc(formatClock(s.startMin) + '–' + formatClock(s.endMin)) + '">' +
+            '<span class="rf-tl-task-title">' + label + '</span>' +
+            '<span class="rf-tl-task-time">' + esc(formatClock(s.startMin)) + '</span>' +
+            '</div>';
+  }
+
+  // Calendar events (rendered after tasks so they paint on top if anything overlaps visually)
+  for (var ev2 = 0; ev2 < events.length; ev2++) {
+    var e = events[ev2];
+    var eTop = (e.startMin - windowStart) * PX_PER_MIN;
+    var eHeight = Math.max(2, (e.endMin - e.startMin) * PX_PER_MIN);
+    var doneCls = e.isDone ? ' is-done' : '';
+    html += '<div class="rf-tl-event' + doneCls + '" style="top:' + eTop + 'px;height:' + eHeight + 'px;border-left-color:' + esc(e.color) + ';" title="' + esc(e.title + '  ' + formatClock(e.startMin) + '–' + formatClock(e.endMin)) + '">' +
+            '<span class="rf-tl-event-title">' + esc(e.title) + '</span>' +
+            '<span class="rf-tl-event-time">' + esc(formatClock(e.startMin)) + '</span>' +
+            '</div>';
+  }
+
+  // "Now" line
+  if (nowMin >= windowStart && nowMin <= windowEnd) {
+    var nowTop = (nowMin - windowStart) * PX_PER_MIN;
+    html += '<div class="rf-tl-now" style="top:' + nowTop + 'px;" title="Now ' + esc(formatClock(nowMin)) + '"></div>';
+  }
+
+  html += '</div>';
+  return html;
+}
+
 function buildTodayTab(planTasks, focusMap, timerState) {
   var remaining = planTasks.filter(function(t) { return !t.isComplete; });
 
@@ -1174,7 +1329,10 @@ function buildTodayTab(planTasks, focusMap, timerState) {
   var totalEstStr = formatMinutes(totalEstMin);
   var totalActStr = formatMinutes(totalActMin);
 
-  var html = '<div class="rf-today-overview">';
+  var html = '<div class="rf-today">';
+
+  // Left: existing task overview
+  html += '<div class="rf-plan-panel rf-today-overview">';
   html += '<div class="rf-panel-header">';
   html += '<h2 class="rf-panel-title">Today\'s Plan</h2>';
   html += '<span class="rf-plan-count">' + remaining.length + ' remaining';
@@ -1186,12 +1344,21 @@ function buildTodayTab(planTasks, focusMap, timerState) {
   if (planTasks.length === 0) {
     html += '<div class="rf-empty">No tasks planned yet. Go to the <strong>Plan</strong> tab to add tasks.</div>';
   } else {
-    var incompleteCount = remaining.length;
     for (var i = 0; i < planTasks.length; i++) {
       html += buildTodayPlanItem(planTasks[i], i, planTasks.length, focusMap, timerState);
     }
   }
   html += '</div>';
+  html += '</div>';
+
+  // Right: timeline preview
+  html += '<div class="rf-today-timeline-panel">';
+  html += '<div class="rf-panel-header"><h2 class="rf-panel-title">Timeline</h2></div>';
+  html += '<div class="rf-tl-scroll">';
+  html += buildTodayTimeline(planTasks);
+  html += '</div>';
+  html += '</div>';
+
   html += '</div>';
   return html;
 }
@@ -2261,6 +2428,62 @@ function getInlineCSS() {
 '.rf-today-act:hover { background: var(--rf-border); color: var(--rf-text); }\n' +
 '.rf-today-act.focusing { color: var(--rf-accent); }\n' +
 '.rf-today-act.focusing:hover { background: var(--rf-red-soft); color: var(--rf-red); }\n' +
+
+/* ---- Today Timeline ---- */
+'.rf-today-timeline-panel {\n' +
+'  flex: 0 0 320px; display: flex; flex-direction: column; min-width: 0;\n' +
+'}\n' +
+'.rf-tl-scroll { flex: 1; overflow-y: auto; padding: 12px 16px 24px; }\n' +
+'.rf-tl-empty { color: var(--rf-text-muted); font-size: 12px; padding: 16px 0; }\n' +
+'.rf-tl-track { position: relative; margin-left: 44px; }\n' +
+'.rf-tl-hour {\n' +
+'  position: absolute; left: -44px; right: 0; height: 0;\n' +
+'  border-top: 1px dashed var(--rf-border);\n' +
+'}\n' +
+'.rf-tl-hour-label {\n' +
+'  position: absolute; left: 0; top: -7px; width: 38px;\n' +
+'  font-size: 10px; color: var(--rf-text-faint);\n' +
+'  font-variant-numeric: tabular-nums;\n' +
+'}\n' +
+'.rf-tl-event, .rf-tl-task {\n' +
+'  position: absolute; left: 4px; right: 4px;\n' +
+'  border-radius: 4px; padding: 3px 6px;\n' +
+'  font-size: 11px; line-height: 1.25;\n' +
+'  overflow: hidden; box-sizing: border-box;\n' +
+'  display: flex; flex-direction: column; gap: 1px;\n' +
+'}\n' +
+'.rf-tl-event {\n' +
+'  background: color-mix(in srgb, var(--rf-accent) 12%, transparent);\n' +
+'  border-left: 3px solid var(--rf-accent);\n' +
+'  color: var(--rf-text);\n' +
+'}\n' +
+'.rf-tl-event.is-done { opacity: 0.45; }\n' +
+'.rf-tl-event-title { font-weight: 600; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }\n' +
+'.rf-tl-event-time, .rf-tl-task-time {\n' +
+'  font-size: 9px; color: var(--rf-text-faint); font-variant-numeric: tabular-nums;\n' +
+'}\n' +
+'.rf-tl-task {\n' +
+'  background: repeating-linear-gradient(\n' +
+'    45deg,\n' +
+'    color-mix(in srgb, var(--rf-text-faint) 14%, transparent),\n' +
+'    color-mix(in srgb, var(--rf-text-faint) 14%, transparent) 4px,\n' +
+'    transparent 4px, transparent 8px\n' +
+'  );\n' +
+'  border: 1px solid var(--rf-border-strong);\n' +
+'  color: var(--rf-text-muted);\n' +
+'}\n' +
+'.rf-tl-task-title {\n' +
+'  white-space: nowrap; text-overflow: ellipsis; overflow: hidden;\n' +
+'}\n' +
+'.rf-tl-cont { color: var(--rf-text-faint); font-style: italic; font-size: 10px; }\n' +
+'.rf-tl-now {\n' +
+'  position: absolute; left: -44px; right: 0; height: 0;\n' +
+'  border-top: 2px solid var(--rf-red); z-index: 5; pointer-events: none;\n' +
+'}\n' +
+'.rf-tl-now::before {\n' +
+'  content: ""; position: absolute; left: 38px; top: -4px;\n' +
+'  width: 8px; height: 8px; border-radius: 50%; background: var(--rf-red);\n' +
+'}\n' +
 
 /* ---- Sources Panel ---- */
 '.rf-sources-panel {\n' +
