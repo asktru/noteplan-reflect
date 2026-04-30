@@ -435,6 +435,13 @@ function toggleNav() {
   if (backdrop) backdrop.classList.toggle('open');
 }
 
+function toggleTimeline() {
+  var panel = document.querySelector('.rf-today-timeline-panel');
+  var backdrop = document.querySelector('.rf-timeline-backdrop');
+  if (panel) panel.classList.toggle('open');
+  if (backdrop) backdrop.classList.toggle('open');
+}
+
 // ============================================
 // SOURCE TAB SWITCHING
 // ============================================
@@ -923,6 +930,9 @@ document.addEventListener('DOMContentLoaded', function() {
         break;
       case 'toggleNav':
         toggleNav();
+        break;
+      case 'toggleTimeline':
+        toggleTimeline();
         break;
       case 'addToPlan':
         handleAddToPlan(target);

@@ -2086,6 +2086,9 @@ function buildDashboardHTML(tab, data) {
 
   html += '<main class="rf-main">';
   html += '<div class="rf-nav-toggle" data-action="toggleNav"><i class="fa-solid fa-bars"></i></div>';
+  if (tab === 'today') {
+    html += '<div class="rf-timeline-toggle" data-action="toggleTimeline" title="Timeline"><i class="fa-regular fa-calendar"></i></div>';
+  }
 
   switch (tab) {
     case 'today':
@@ -2109,6 +2112,9 @@ function buildDashboardHTML(tab, data) {
 
   html += '</main>';
   html += '<div class="rf-nav-backdrop" data-action="toggleNav"></div>';
+  if (tab === 'today') {
+    html += '<div class="rf-timeline-backdrop" data-action="toggleTimeline"></div>';
+  }
   html += '</div>';
   return html;
 }
@@ -2264,6 +2270,17 @@ function getInlineCSS() {
 '  align-items: center; justify-content: center;\n' +
 '}\n' +
 '.rf-nav-backdrop {\n' +
+'  display: none; position: fixed; inset: 0; z-index: 90;\n' +
+'  background: color-mix(in srgb, black 40%, transparent);\n' +
+'}\n' +
+'.rf-timeline-toggle {\n' +
+'  display: none; position: absolute; top: 10px; right: 10px; z-index: 50;\n' +
+'  width: 36px; height: 36px; border-radius: var(--rf-radius-sm);\n' +
+'  border: 1px solid var(--rf-border); background: var(--rf-bg-card);\n' +
+'  color: var(--rf-text-muted); cursor: pointer;\n' +
+'  font-size: 14px; align-items: center; justify-content: center;\n' +
+'}\n' +
+'.rf-timeline-backdrop {\n' +
 '  display: none; position: fixed; inset: 0; z-index: 90;\n' +
 '  background: color-mix(in srgb, black 40%, transparent);\n' +
 '}\n' +
@@ -2839,6 +2856,26 @@ priCSSReflect() +
 '  .rf-main { padding-top: 50px; }\n' +
 '  .rf-focus-card { padding: 24px 16px; }\n' +
 '  .rf-focus-timer { font-size: 48px; }\n' +
+/* Today tab: the timeline becomes a right-side drawer instead of stacking. */
+'  body[data-active-tab="today"] .rf-today { flex-direction: row; }\n' +
+'  body[data-active-tab="today"] .rf-plan-panel {\n' +
+'    border-right: none; border-bottom: none; max-height: none;\n' +
+'  }\n' +
+'  body[data-active-tab="today"] .rf-timeline-toggle { display: flex; }\n' +
+'  body[data-active-tab="today"] .rf-today-timeline-panel {\n' +
+'    position: fixed; top: 0; right: 0; bottom: 0;\n' +
+'    width: min(85vw, 360px); z-index: 100;\n' +
+'    background: var(--rf-bg);\n' +
+'    border-left: 1px solid var(--rf-border);\n' +
+'    transform: translateX(100%);\n' +
+'    transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1);\n' +
+'    box-shadow: none;\n' +
+'  }\n' +
+'  body[data-active-tab="today"] .rf-today-timeline-panel.open {\n' +
+'    transform: translateX(0);\n' +
+'    box-shadow: -4px 0 24px color-mix(in srgb, black 25%, transparent);\n' +
+'  }\n' +
+'  .rf-timeline-backdrop.open { display: block; }\n' +
 '}\n';
 }
 
