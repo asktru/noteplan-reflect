@@ -345,16 +345,17 @@ function getDailyNoteTasks(note) {
  * includeWeekly: if true, also include tasks from weekly/week-scheduled notes.
  */
 /**
- * Check if a task should be excluded from Today/This Week source tabs.
- * Excludes tasks with @repeat (routines) or #waiting (not actionable).
+ * Check if a task should be excluded from source tabs.
+ * Always excludes #waiting (not actionable). Excludes @repeat (routines) only
+ * when includeRepeating is false — Today/Overdue still want to surface them.
  */
-function shouldExcludeFromSources(content) {
-  if (/@repeat\s*\(/.test(content)) return true;
+function shouldExcludeFromSources(content, includeRepeating) {
+  if (!includeRepeating && /@repeat\s*\(/.test(content)) return true;
   if (/#waiting\b/.test(content)) return true;
   return false;
 }
 
-function getScheduledTasks(startDate, endDate, includeWeekly) {
+function getScheduledTasks(startDate, endDate, includeWeekly, includeRepeating) {
   var tasks = [];
   var todayStr = getTodayStr();
   var foldersToExclude = ['@Archive', '@Trash', '@Templates'];
@@ -391,7 +392,7 @@ function getScheduledTasks(startDate, endDate, includeWeekly) {
     for (var i = 0; i < paras.length; i++) {
       var p = paras[i];
       if (p.type !== 'open' && p.type !== 'checklist') continue;
-      if (shouldExcludeFromSources(p.content)) continue;
+      if (shouldExcludeFromSources(p.content, includeRepeating)) continue;
       var schedDate = hasScheduleDateInRange(p.content, startDate, endDate);
       var schedWeek = hasScheduleWeek(p.content);
       if (schedDate || schedWeek) {
@@ -425,7 +426,7 @@ function getScheduledTasks(startDate, endDate, includeWeekly) {
       for (var ci = 0; ci < calParas.length; ci++) {
         var cp = calParas[ci];
         if (cp.type !== 'open' && cp.type !== 'checklist') continue;
-        if (shouldExcludeFromSources(cp.content)) continue;
+        if (shouldExcludeFromSources(cp.content, includeRepeating)) continue;
         tasks.push({
           content: cp.content, rawContent: cp.content, type: cp.type,
           filename: calNote.filename, lineIndex: cp.lineIndex,
@@ -443,7 +444,7 @@ function getScheduledTasks(startDate, endDate, includeWeekly) {
         for (var wi = 0; wi < wParas.length; wi++) {
           var wp = wParas[wi];
           if (wp.type !== 'open' && wp.type !== 'checklist') continue;
-          if (shouldExcludeFromSources(wp.content)) continue;
+          if (shouldExcludeFromSources(wp.content, includeRepeating)) continue;
           tasks.push({
             content: wp.content, rawContent: wp.content, type: wp.type,
             filename: calNote.filename, lineIndex: wp.lineIndex,
@@ -458,18 +459,20 @@ function getScheduledTasks(startDate, endDate, includeWeekly) {
 }
 
 function getScheduledForToday() {
-  // Today + overdue — daily dates only, no weekly/monthly
+  // Today + overdue — daily dates only, no weekly/monthly. Include repeating
+  // tasks so routines scheduled for today still show up.
   var today = getTodayStr();
-  return getScheduledTasks('2000-01-01', today, false);
+  return getScheduledTasks('2000-01-01', today, false, true);
 }
 
 function getScheduledThisWeek() {
-  // Future days this week + weekly note tasks
+  // Future days this week + weekly note tasks. Exclude repeating tasks to keep
+  // the upcoming list focused on one-off work.
   var tomorrow = new Date();
   tomorrow.setDate(tomorrow.getDate() + 1);
   var tomorrowStr = getDateStr(tomorrow);
   var range = getWeekRange();
-  return getScheduledTasks(tomorrowStr, range.end, true);
+  return getScheduledTasks(tomorrowStr, range.end, true, false);
 }
 
 // ============================================
@@ -547,6 +550,9 @@ async function getTodayCalendarEvents() {
 // CLICKUP INTEGRATION
 // ============================================
 
+// Task type names to hide from the ClickUp source list (case-insensitive).
+var CLICKUP_EXCLUDED_TYPES = { 'meeting': true, 'routine': true };
+
 async function fetchClickUpTasks(apiToken, teamId) {
   if (!apiToken || !teamId) return [];
   try {
@@ -575,7 +581,22 @@ async function fetchClickUpTasks(apiToken, teamId) {
       console.log('Reflect: Could not get ClickUp user: ' + String(meErr));
     }
 
-    // Step 2: Get tasks
+    // Step 2: Fetch task type definitions to map custom_item_id → name
+    var typeMap = {};
+    try {
+      var typesBody = await doFetch('https://api.clickup.com/api/v2/team/' + teamId + '/custom_item');
+      var typesData = JSON.parse(typesBody);
+      var items = typesData.custom_items || [];
+      for (var ti = 0; ti < items.length; ti++) {
+        if (items[ti] && items[ti].id !== undefined) {
+          typeMap[String(items[ti].id)] = items[ti].name || '';
+        }
+      }
+    } catch (typeErr) {
+      console.log('Reflect: Could not fetch ClickUp task types: ' + String(typeErr));
+    }
+
+    // Step 3: Get tasks
     var url = 'https://api.clickup.com/api/v2/team/' + teamId +
       '/task?statuses%5B%5D=open&statuses%5B%5D=in%20progress' +
       '&order_by=due_date&reverse=true&subtasks=true&include_closed=false' +
@@ -584,19 +605,33 @@ async function fetchClickUpTasks(apiToken, teamId) {
     console.log('Reflect: Fetching ClickUp tasks...');
     var body = await doFetch(url);
     var data = JSON.parse(body);
-    console.log('Reflect: Got ' + (data.tasks || []).length + ' ClickUp tasks');
-    var tasks = (data.tasks || []).map(function(t) {
-      return {
+    var rawTasks = data.tasks || [];
+    console.log('Reflect: Got ' + rawTasks.length + ' ClickUp tasks');
+
+    var tasks = [];
+    for (var i = 0; i < rawTasks.length; i++) {
+      var t = rawTasks[i];
+
+      // Resolve task type name from custom_item_id (null/undefined = default Task).
+      var typeId = (t.custom_item_id !== undefined && t.custom_item_id !== null) ? String(t.custom_item_id) : '';
+      var typeName = typeId && typeMap[typeId] ? typeMap[typeId] : '';
+      // Fallback: some responses include t.custom_item.name directly.
+      if (!typeName && t.custom_item && t.custom_item.name) typeName = t.custom_item.name;
+      if (typeName && CLICKUP_EXCLUDED_TYPES[typeName.toLowerCase()]) continue;
+
+      tasks.push({
         content: t.name,
         type: 'clickup',
         clickupId: t.id,
-        url: t.url,
+        customId: t.custom_id || '',
+        taskType: typeName || '',
+        url: t.url || '',
         status: (t.status || {}).status || 'open',
         dueDate: t.due_date ? new Date(parseInt(t.due_date)).toISOString().slice(0, 10) : null,
         listName: t.list ? t.list.name : '',
         source: 'clickup',
-      };
-    });
+      });
+    }
     return tasks;
   } catch (e) {
     console.log('Reflect: ClickUp fetch error: ' + String(e));
@@ -2294,6 +2329,13 @@ priCSSReflect() +
 '}\n' +
 '.rf-source-date.overdue { color: var(--rf-red); }\n' +
 '.rf-source-date.today { color: var(--rf-orange); }\n' +
+'.rf-clickup-id {\n' +
+'  background: var(--rf-border); color: var(--rf-text-muted);\n' +
+'  border: none; padding: 1px 6px; border-radius: 3px;\n' +
+'  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;\n' +
+'  font-size: 10px; cursor: pointer; transition: background 0.15s, color 0.15s;\n' +
+'}\n' +
+'.rf-clickup-id:hover { background: var(--rf-border-strong); color: var(--rf-text); }\n' +
 '.rf-source-add {\n' +
 '  flex-shrink: 0; width: 22px; height: 22px;\n' +
 '  border-radius: 50%; border: 1px solid var(--rf-border-strong);\n' +
@@ -2902,6 +2944,13 @@ async function onMessageFromHTMLView(actionType, data) {
           await CommandBar.onMainThread();
           // Open in a separate floating window (newWindow=true)
           Editor.openNoteByFilename(msg.filename, true);
+        }
+        break;
+
+      case 'openExternalUrl':
+        if (msg.url) {
+          await CommandBar.onMainThread();
+          NotePlan.openURL(msg.url);
         }
         break;
 

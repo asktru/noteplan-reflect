@@ -468,49 +468,90 @@ function renderClickUpTasks(tasks) {
     return;
   }
 
-  for (var i = 0; i < tasks.length; i++) {
-    var t = tasks[i];
-    var taskEl = document.createElement('div');
-    taskEl.className = 'rf-source-task';
-    taskEl.dataset.content = t.content || '';
-    if (t.clickupId) taskEl.dataset.clickupId = t.clickupId;
-
-    var mainDiv = document.createElement('div');
-    mainDiv.className = 'rf-source-task-main';
-    var contentSpan = document.createElement('span');
-    contentSpan.className = 'rf-source-task-content';
-    contentSpan.textContent = t.content || '';
-    mainDiv.appendChild(contentSpan);
-    taskEl.appendChild(mainDiv);
-
-    var metaDiv = document.createElement('div');
-    metaDiv.className = 'rf-source-task-meta';
-    if (t.dueDate) {
-      var dateSpan = document.createElement('span');
-      dateSpan.className = 'rf-source-date';
-      dateSpan.textContent = t.dueDate;
-      metaDiv.appendChild(dateSpan);
+  // Group by list name, preserving first-seen order.
+  var groupOrder = [];
+  var groups = {};
+  for (var gi = 0; gi < tasks.length; gi++) {
+    var key = tasks[gi].listName || 'Other';
+    if (!groups[key]) {
+      groups[key] = [];
+      groupOrder.push(key);
     }
-    if (t.status) {
-      var statusSpan = document.createElement('span');
-      statusSpan.className = 'rf-source-meta';
-      statusSpan.textContent = t.status;
-      metaDiv.appendChild(statusSpan);
+    groups[key].push(tasks[gi]);
+  }
+
+  for (var go = 0; go < groupOrder.length; go++) {
+    var listName = groupOrder[go];
+    var groupTasks = groups[listName];
+
+    var header = document.createElement('div');
+    header.className = 'rf-source-group-header';
+    header.appendChild(document.createTextNode(listName + ' '));
+    var countSpan = document.createElement('span');
+    countSpan.className = 'rf-source-group-count';
+    countSpan.textContent = String(groupTasks.length);
+    header.appendChild(countSpan);
+    list.appendChild(header);
+
+    for (var i = 0; i < groupTasks.length; i++) {
+      var t = groupTasks[i];
+      var taskEl = document.createElement('div');
+      taskEl.className = 'rf-source-task';
+      taskEl.dataset.content = t.content || '';
+      if (t.clickupId) taskEl.dataset.clickupId = t.clickupId;
+
+      // 1. Add button on the LEFT (consistent with other source tabs)
+      var addBtn = document.createElement('button');
+      addBtn.className = 'rf-source-add';
+      addBtn.dataset.action = 'addToPlan';
+      addBtn.dataset.content = t.content || '';
+      if (t.clickupId) addBtn.dataset.clickupId = t.clickupId;
+      addBtn.title = 'Add to plan (S)';
+      var addIcon = document.createElement('i');
+      addIcon.className = 'fa-solid fa-plus';
+      addBtn.appendChild(addIcon);
+      taskEl.appendChild(addBtn);
+
+      // 2. Body
+      var body = document.createElement('div');
+      body.className = 'rf-source-task-body';
+
+      var contentSpan = document.createElement('span');
+      contentSpan.className = 'rf-source-task-content';
+      contentSpan.textContent = t.content || '';
+      body.appendChild(contentSpan);
+
+      var metaDiv = document.createElement('div');
+      metaDiv.className = 'rf-source-task-meta';
+
+      // Clickable task ID badge — opens the ClickUp task in the system browser
+      var idLabel = t.customId || t.clickupId || '';
+      if (idLabel && t.url) {
+        var idBtn = document.createElement('button');
+        idBtn.className = 'rf-clickup-id';
+        idBtn.dataset.action = 'openExternalUrl';
+        idBtn.dataset.url = t.url;
+        idBtn.title = 'Open in ClickUp';
+        idBtn.textContent = idLabel;
+        metaDiv.appendChild(idBtn);
+      }
+      if (t.dueDate) {
+        var dateSpan = document.createElement('span');
+        dateSpan.className = 'rf-source-date';
+        dateSpan.textContent = t.dueDate;
+        metaDiv.appendChild(dateSpan);
+      }
+      if (t.status) {
+        var statusSpan = document.createElement('span');
+        statusSpan.className = 'rf-source-meta';
+        statusSpan.textContent = t.status;
+        metaDiv.appendChild(statusSpan);
+      }
+      if (metaDiv.childNodes.length > 0) body.appendChild(metaDiv);
+
+      taskEl.appendChild(body);
+      list.appendChild(taskEl);
     }
-    if (metaDiv.childNodes.length > 0) taskEl.appendChild(metaDiv);
-
-    var addBtn = document.createElement('button');
-    addBtn.className = 'rf-source-add';
-    addBtn.dataset.action = 'addToPlan';
-    addBtn.dataset.content = t.content || '';
-    if (t.clickupId) addBtn.dataset.clickupId = t.clickupId;
-    addBtn.title = 'Add to plan (S)';
-    var addIcon = document.createElement('i');
-    addIcon.className = 'fa-solid fa-plus';
-    addBtn.appendChild(addIcon);
-    taskEl.appendChild(addBtn);
-
-    list.appendChild(taskEl);
   }
 }
 
@@ -909,6 +950,11 @@ document.addEventListener('DOMContentLoaded', function() {
       case 'openNoteFile':
         if (target.dataset.filename) {
           sendMessageToPlugin('openNoteFile', JSON.stringify({ filename: target.dataset.filename }));
+        }
+        break;
+      case 'openExternalUrl':
+        if (target.dataset.url) {
+          sendMessageToPlugin('openExternalUrl', JSON.stringify({ url: target.dataset.url }));
         }
         break;
     }
