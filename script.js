@@ -2729,6 +2729,9 @@ async function onMessageFromHTMLView(actionType, data) {
             }
           }
           if (!planContent) break;
+          // Strip @repeat(...) — keeping it on a copy in today's plan would
+          // make NotePlan treat the duplicate as another recurrence.
+          planContent = planContent.replace(/\s*@repeat\([^)]*\)\s*/g, ' ').replace(/\s{2,}/g, ' ').trim();
           if (msg.durationStr) {
             planContent += ' *- ' + msg.durationStr + '*';
           }
@@ -2741,9 +2744,11 @@ async function onMessageFromHTMLView(actionType, data) {
           var newTask = updatedPlan[updatedPlan.length - 1];
           var remaining = updatedPlan.filter(function(t) { return !t.isComplete; }).length;
 
-          // Render without time estimate (it's shown separately in the time button)
+          // Render without time estimate or priority prefix — both are shown
+          // separately on the right side of the plan item.
           var parsedContent = extractTimeEstimate(planContent);
-          var contentHTML = renderTaskContent(parsedContent.content);
+          var parsedPri = extractPriority(parsedContent.content);
+          var contentHTML = renderTaskContent(parsedPri.content);
 
           await sendToHTMLWindow(WINDOW_ID, 'TASK_ADDED_TO_PLAN', {
             content: planContent,
@@ -2752,6 +2757,8 @@ async function onMessageFromHTMLView(actionType, data) {
             originalContent: msg.content || '',
             remaining: remaining,
             durationStr: msg.durationStr || parsedContent.estimate || '',
+            priorityLevel: parsedPri.level,
+            priorityBadgeHTML: renderPriorityBadge(parsedPri.level),
           });
         }
         break;

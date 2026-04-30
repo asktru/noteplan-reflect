@@ -59,8 +59,11 @@ function handleTaskAddedToPlan(data) {
     item.draggable = true;
     item.dataset.lineIndex = data.lineIndex;
     item.dataset.index = planList.querySelectorAll('.rf-plan-item').length;
-    // Store content for matching on removal — strip trailing time estimate to match source data-content
-    var planContentForMatch = (data.content || '').replace(/\s*\*-\s*(?:\d+(?:\.\d+)?h(?:\s*\d+m)?|\d+m)\*\s*$/, '');
+    // Store content for matching on removal — prefer the original source content
+    // (matches source data-content as-is), falling back to stored plan content
+    // with the trailing time estimate stripped.
+    var planContentForMatch = data.originalContent ||
+      (data.content || '').replace(/\s*\*-\s*(?:\d+(?:\.\d+)?h(?:\s*\d+m)?|\d+m)\*\s*$/, '');
     item.dataset.content = planContentForMatch;
 
     var handle = document.createElement('span');
@@ -71,11 +74,16 @@ function handleTaskAddedToPlan(data) {
 
     var content = document.createElement('span');
     content.className = 'rf-plan-content';
-    // Use textContent as fallback, innerHTML for rich content
-    if (data.contentHTML && data.contentHTML.indexOf('<') >= 0) {
+    // Always prefer the backend-rendered HTML — it has already stripped the
+    // priority prefix, time estimate, and @repeat marker. Falling back to
+    // originalContent here would surface those again until the next refresh.
+    if (data.contentHTML) {
       content.innerHTML = data.contentHTML;
     } else {
-      content.textContent = data.originalContent || '';
+      var fallback = (data.content || '')
+        .replace(/\s*\*-\s*(?:\d+(?:\.\d+)?h(?:\s*\d+m)?|\d+m)\*\s*$/, '')
+        .replace(/^!!!\s+|^!!\s+|^!\s+/, '');
+      content.textContent = fallback;
     }
 
     var actions = document.createElement('span');
@@ -85,11 +93,16 @@ function handleTaskAddedToPlan(data) {
     pri.className = 'rf-plan-pri';
     pri.dataset.action = 'cyclePlanPriority';
     pri.dataset.lineIndex = data.lineIndex;
-    pri.dataset.level = '0';
+    var priLevel = parseInt(data.priorityLevel || 0, 10);
+    pri.dataset.level = String(priLevel);
     pri.title = 'Cycle priority';
-    var priIcon = document.createElement('i');
-    priIcon.className = 'fa-solid fa-flag rf-pri-none';
-    pri.appendChild(priIcon);
+    if (priLevel > 0 && data.priorityBadgeHTML) {
+      pri.innerHTML = data.priorityBadgeHTML;
+    } else {
+      var priIcon = document.createElement('i');
+      priIcon.className = 'fa-solid fa-flag rf-pri-none';
+      pri.appendChild(priIcon);
+    }
 
     var timeBtn = document.createElement('button');
     timeBtn.className = 'rf-time-btn';
