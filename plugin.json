@@ -90,6 +90,12 @@
       "description": "Refresh the Reflect dashboard",
       "jsFunction": "refreshReflect",
       "hidden": true
+    },
+    {
+      "name": "onUpdateOrInstall",
+      "description": "Install dependencies after install/update",
+      "jsFunction": "onUpdateOrInstall",
+      "hidden": true
     }
   ]
 }
