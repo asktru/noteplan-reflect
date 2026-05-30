@@ -553,6 +553,12 @@ async function getTodayCalendarEvents() {
 // Task type names to hide from the ClickUp source list (case-insensitive).
 var CLICKUP_EXCLUDED_TYPES = { 'meeting': true, 'routine': true };
 
+// Status names to hide from the ClickUp source list (case-insensitive).
+// `include_closed=false` already filters statuses of type "closed" (typically
+// "complete"/"done"/"canceled"). This catches non-closed statuses we still
+// don't want, like "blocked".
+var CLICKUP_EXCLUDED_STATUSES = { 'blocked': true, 'canceled': true, 'cancelled': true, 'complete': true, 'completed': true };
+
 async function fetchClickUpTasks(apiToken, teamId) {
   if (!apiToken || !teamId) return [];
   try {
@@ -598,8 +604,7 @@ async function fetchClickUpTasks(apiToken, teamId) {
 
     // Step 3: Get tasks
     var url = 'https://api.clickup.com/api/v2/team/' + teamId +
-      '/task?statuses%5B%5D=open&statuses%5B%5D=in%20progress' +
-      '&order_by=due_date&reverse=true&subtasks=true&include_closed=false' +
+      '/task?order_by=due_date&reverse=true&subtasks=true&include_closed=false' +
       assigneeParam;
 
     console.log('Reflect: Fetching ClickUp tasks...');
@@ -619,6 +624,9 @@ async function fetchClickUpTasks(apiToken, teamId) {
       if (!typeName && t.custom_item && t.custom_item.name) typeName = t.custom_item.name;
       if (typeName && CLICKUP_EXCLUDED_TYPES[typeName.toLowerCase()]) continue;
 
+      var statusName = (t.status || {}).status || 'open';
+      if (CLICKUP_EXCLUDED_STATUSES[statusName.toLowerCase()]) continue;
+
       tasks.push({
         content: t.name,
         type: 'clickup',
@@ -626,7 +634,7 @@ async function fetchClickUpTasks(apiToken, teamId) {
         customId: t.custom_id || '',
         taskType: typeName || '',
         url: t.url || '',
-        status: (t.status || {}).status || 'open',
+        status: statusName,
         dueDate: t.due_date ? new Date(parseInt(t.due_date)).toISOString().slice(0, 10) : null,
         listName: t.list ? t.list.name : '',
         source: 'clickup',
