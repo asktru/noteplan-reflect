@@ -416,11 +416,17 @@ function getScheduledTasksCombined(config) {
   }
 
   // Project notes — scanned ONCE; bucket per task.
+  var _projStart = Date.now();
+  var _parsed = 0, _skipped = 0;
   var pNotes = DataStore.projectNotes;
   for (var n = 0; n < pNotes.length; n++) {
     var note = pNotes[n];
     var folder = (note.filename || '').split('/')[0];
     if (foldersToExclude.indexOf(folder) >= 0) continue;
+    // Fast path: a scheduled task needs a `>` marker. Notes with none can't
+    // contribute, so skip parsing their paragraphs (the expensive step).
+    if ((note.content || '').indexOf('>') < 0) { _skipped++; continue; }
+    _parsed++;
     var paras = note.paragraphs;
     for (var i = 0; i < paras.length; i++) {
       var p = paras[i];
@@ -447,7 +453,10 @@ function getScheduledTasksCombined(config) {
     }
   }
 
+  var _projMs = Date.now() - _projStart;
+
   // Calendar notes — scanned ONCE; daily-note parsing bounded by lookback.
+  var _calStart = Date.now();
   var cNotes = DataStore.calendarNotes;
   for (var cn = 0; cn < cNotes.length; cn++) {
     var calNote = cNotes[cn];
@@ -491,6 +500,10 @@ function getScheduledTasksCombined(config) {
       }
     }
   }
+
+  var _calMs = Date.now() - _calStart;
+  console.log('Reflect scan split: project=' + _projMs + 'ms (parsed ' + _parsed +
+    ', skipped ' + _skipped + ' of ' + pNotes.length + '), calendar=' + _calMs + 'ms');
 
   return { scheduledToday: todayList, scheduledWeek: weekList };
 }
@@ -3472,6 +3485,13 @@ async function onUpdateOrInstall() {
   catch (e) { console.log('Reflect onUpdateOrInstall failed: ' + (e && e.message ? e.message : String(e))); }
 }
 
+// NotePlan invokes this whenever the plugin's settings change (e.g. writing
+// DataStore.settings). Define it to avoid an "undefined function" console error
+// and drop the task cache so the next view reflects new settings.
+function onSettingsUpdated() {
+  invalidateTaskCache();
+}
+
 // ============================================
 // EXPORTS
 // ============================================
@@ -3481,3 +3501,4 @@ globalThis.showReflectWindow = showReflectWindow;
 globalThis.onMessageFromHTMLView = onMessageFromHTMLView;
 globalThis.refreshReflect = refreshReflect;
 globalThis.onUpdateOrInstall = onUpdateOrInstall;
+globalThis.onSettingsUpdated = onSettingsUpdated;
