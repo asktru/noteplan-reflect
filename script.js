@@ -3047,6 +3047,10 @@ async function showReflect(tab, targetWindowID) {
     };
 
     if (isFloating) {
+      // Reflect's UI is wide (multi-column tabs + timeline); give the standalone
+      // window a roomy default size. reuseUsersWindowRect keeps any later resize.
+      winOptions.width = 1200;
+      winOptions.height = 800;
       await HTMLView.showWindowWithOptions(fullHTML, 'Reflect', winOptions);
     } else {
       var result = await HTMLView.showInMainWindow(fullHTML, 'Reflect', winOptions);
