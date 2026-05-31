@@ -21,12 +21,21 @@ async function getCachedTasks(note, config) {
   var now = Date.now();
   if (_taskCache && (now - _taskCacheTime) < _taskCacheTTL) return _taskCache;
 
+  var t0 = Date.now();
   var calEvents = await getTodayCalendarEvents();
+  var t1 = Date.now();
+  var dailyTasks = getDailyNoteTasks(note);
+  var t2 = Date.now();
+  var scheduled = getScheduledTasksCombined(config);
+  var t3 = Date.now();
+  console.log('Reflect Plan scan (lookback ' + config.planLookbackDays + 'd): calendarEvents=' +
+    (t1 - t0) + 'ms, dailyTasks=' + (t2 - t1) + 'ms, scheduledScan=' + (t3 - t2) + 'ms, total=' + (t3 - t0) + 'ms');
+
   _taskCache = {
     calendarEvents: calEvents,
-    dailyTasks: getDailyNoteTasks(note),
-    scheduledToday: getScheduledForToday(),
-    scheduledWeek: getScheduledThisWeek(),
+    dailyTasks: dailyTasks,
+    scheduledToday: scheduled.scheduledToday,
+    scheduledWeek: scheduled.scheduledWeek,
   };
   _taskCacheTime = now;
   return _taskCache;
@@ -41,7 +50,14 @@ function getSettings() {
     clickupTeamId: s.clickupTeamId || '',
     timerState: timer,
     lastTab: s.lastTab || 'today',
+    planLookbackDays: Number(s.planLookbackDays) || 7,
   };
+}
+
+function savePlanLookback(days) {
+  var s = DataStore.settings || {};
+  s.planLookbackDays = days;
+  DataStore.settings = s;
 }
 
 function saveLastTab(tab) {
@@ -356,12 +372,31 @@ function shouldExcludeFromSources(content, includeRepeating) {
   return false;
 }
 
-function getScheduledTasks(startDate, endDate, includeWeekly, includeRepeating) {
-  var tasks = [];
+// Single combined pass for the Plan view's scheduled-task sources. Walks
+// projectNotes once and calendarNotes once (previously each was scanned twice),
+// bucketing each task into `scheduledToday` (today + overdue; repeating allowed)
+// and `scheduledWeek` (rest of this week + this week's weekly note; repeating
+// excluded). Calendar daily-note parsing is bounded to the last
+// `config.planLookbackDays` days so we don't parse the entire daily archive.
+// Project-note >date overdue matching stays unbounded — project notes are all
+// parsed regardless, so it's a cheap string compare, not a scan-cost concern.
+function getScheduledTasksCombined(config) {
+  var todayList = [];
+  var weekList = [];
   var todayStr = getTodayStr();
   var foldersToExclude = ['@Archive', '@Trash', '@Templates'];
 
-  function hasScheduleDateInRange(content, start, end) {
+  var tomorrowD = new Date();
+  tomorrowD.setDate(tomorrowD.getDate() + 1);
+  var tomorrowStr = getDateStr(tomorrowD);
+  var weekEndStr = getWeekRange().end;
+  var currentWeek = getISOWeek(todayStr);
+
+  var lbD = new Date();
+  lbD.setDate(lbD.getDate() - (config.planLookbackDays || 7));
+  var calLookbackStart = getDateStr(lbD);
+
+  function dateInRange(content, start, end) {
     var matches = content.match(/>(\d{4}-\d{2}-\d{2})/g);
     if (matches) {
       for (var j = 0; j < matches.length; j++) {
@@ -372,108 +407,92 @@ function getScheduledTasks(startDate, endDate, includeWeekly, includeRepeating) 
     if (content.indexOf('>today') >= 0 && todayStr >= start && todayStr <= end) return todayStr;
     return null;
   }
-
-  var currentWeek = includeWeekly ? getISOWeek(todayStr) : null;
-
-  function hasScheduleWeek(content) {
-    if (!currentWeek) return null;
-    var match = content.match(/>(\d{4}-W\d{2})/);
-    if (match && match[1] === currentWeek) return match[1];
-    return null;
+  function weekMatch(content) {
+    var m = content.match(/>(\d{4}-W\d{2})/);
+    return (m && m[1] === currentWeek) ? m[1] : null;
+  }
+  function clean(content) {
+    return content.replace(/>(\d{4}-\d{2}-\d{2}|today|\d{4}-W\d{2})/g, '').trim();
   }
 
-  // Scan project notes
+  // Project notes — scanned ONCE; bucket per task.
   var pNotes = DataStore.projectNotes;
   for (var n = 0; n < pNotes.length; n++) {
     var note = pNotes[n];
     var folder = (note.filename || '').split('/')[0];
     if (foldersToExclude.indexOf(folder) >= 0) continue;
-
     var paras = note.paragraphs;
     for (var i = 0; i < paras.length; i++) {
       var p = paras[i];
       if (p.type !== 'open' && p.type !== 'checklist') continue;
-      if (shouldExcludeFromSources(p.content, includeRepeating)) continue;
-      var schedDate = hasScheduleDateInRange(p.content, startDate, endDate);
-      var schedWeek = hasScheduleWeek(p.content);
-      if (schedDate || schedWeek) {
-        tasks.push({
-          content: p.content.replace(/>(\d{4}-\d{2}-\d{2}|today|\d{4}-W\d{2})/g, '').trim(),
-          rawContent: p.content,
-          type: p.type,
-          filename: note.filename,
-          lineIndex: p.lineIndex,
-          noteTitle: note.title || note.filename,
-          scheduledDate: schedDate || schedWeek,
-          source: 'scheduled',
-        });
+      var content = p.content;
+      // Today/overdue: >date <= today, repeating allowed.
+      if (!shouldExcludeFromSources(content, true)) {
+        var td = dateInRange(content, '2000-01-01', todayStr);
+        if (td) {
+          todayList.push({ content: clean(content), rawContent: content, type: p.type,
+            filename: note.filename, lineIndex: p.lineIndex,
+            noteTitle: note.title || note.filename, scheduledDate: td, source: 'scheduled' });
+        }
       }
-    }
-  }
-
-  // Scan calendar notes
-  var cNotes = DataStore.calendarNotes;
-  for (var cn = 0; cn < cNotes.length; cn++) {
-    var calNote = cNotes[cn];
-    var fn = (calNote.filename || '').replace(/\.(md|txt)$/, '');
-
-    // Daily notes: YYYYMMDD
-    var dailyMatch = fn.match(/^(\d{4})(\d{2})(\d{2})$/);
-    if (dailyMatch) {
-      var noteDate = dailyMatch[1] + '-' + dailyMatch[2] + '-' + dailyMatch[3];
-      if (noteDate < startDate || noteDate > endDate) continue;
-      if (noteDate === todayStr) continue;
-      var calParas = calNote.paragraphs;
-      for (var ci = 0; ci < calParas.length; ci++) {
-        var cp = calParas[ci];
-        if (cp.type !== 'open' && cp.type !== 'checklist') continue;
-        if (shouldExcludeFromSources(cp.content, includeRepeating)) continue;
-        tasks.push({
-          content: cp.content, rawContent: cp.content, type: cp.type,
-          filename: calNote.filename, lineIndex: cp.lineIndex,
-          noteTitle: noteDate, scheduledDate: noteDate, source: 'scheduled',
-        });
-      }
-      continue;
-    }
-
-    // Weekly notes: only if includeWeekly
-    if (includeWeekly) {
-      var weekMatch = fn.match(/^(\d{4}-W\d{2})$/);
-      if (weekMatch && weekMatch[1] === currentWeek) {
-        var wParas = calNote.paragraphs;
-        for (var wi = 0; wi < wParas.length; wi++) {
-          var wp = wParas[wi];
-          if (wp.type !== 'open' && wp.type !== 'checklist') continue;
-          if (shouldExcludeFromSources(wp.content, includeRepeating)) continue;
-          tasks.push({
-            content: wp.content, rawContent: wp.content, type: wp.type,
-            filename: calNote.filename, lineIndex: wp.lineIndex,
-            noteTitle: weekMatch[1], scheduledDate: weekMatch[1], source: 'scheduled',
-          });
+      // This week: >date tomorrow..weekEnd OR >week == currentWeek, repeating excluded.
+      if (!shouldExcludeFromSources(content, false)) {
+        var wd = dateInRange(content, tomorrowStr, weekEndStr) || weekMatch(content);
+        if (wd) {
+          weekList.push({ content: clean(content), rawContent: content, type: p.type,
+            filename: note.filename, lineIndex: p.lineIndex,
+            noteTitle: note.title || note.filename, scheduledDate: wd, source: 'scheduled' });
         }
       }
     }
   }
 
-  return tasks;
-}
+  // Calendar notes — scanned ONCE; daily-note parsing bounded by lookback.
+  var cNotes = DataStore.calendarNotes;
+  for (var cn = 0; cn < cNotes.length; cn++) {
+    var calNote = cNotes[cn];
+    var fn = (calNote.filename || '').replace(/\.(md|txt)$/, '');
 
-function getScheduledForToday() {
-  // Today + overdue — daily dates only, no weekly/monthly. Include repeating
-  // tasks so routines scheduled for today still show up.
-  var today = getTodayStr();
-  return getScheduledTasks('2000-01-01', today, false, true);
-}
+    var dailyMatch = fn.match(/^(\d{4})(\d{2})(\d{2})$/);
+    if (dailyMatch) {
+      var noteDate = dailyMatch[1] + '-' + dailyMatch[2] + '-' + dailyMatch[3];
+      // Overdue (within lookback) vs future-this-week. Today is handled by
+      // getDailyNoteTasks. Notes outside both windows are skipped before parsing.
+      var bucket = null;
+      if (noteDate >= calLookbackStart && noteDate < todayStr) bucket = 'today';
+      else if (noteDate >= tomorrowStr && noteDate <= weekEndStr) bucket = 'week';
+      if (!bucket) continue;
+      var allowRepeating = bucket === 'today';
+      var calParas = calNote.paragraphs;
+      for (var ci = 0; ci < calParas.length; ci++) {
+        var cp = calParas[ci];
+        if (cp.type !== 'open' && cp.type !== 'checklist') continue;
+        if (shouldExcludeFromSources(cp.content, allowRepeating)) continue;
+        var item = { content: cp.content, rawContent: cp.content, type: cp.type,
+          filename: calNote.filename, lineIndex: cp.lineIndex,
+          noteTitle: noteDate, scheduledDate: noteDate, source: 'scheduled' };
+        if (bucket === 'today') todayList.push(item);
+        else weekList.push(item);
+      }
+      continue;
+    }
 
-function getScheduledThisWeek() {
-  // Future days this week + weekly note tasks. Exclude repeating tasks to keep
-  // the upcoming list focused on one-off work.
-  var tomorrow = new Date();
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  var tomorrowStr = getDateStr(tomorrow);
-  var range = getWeekRange();
-  return getScheduledTasks(tomorrowStr, range.end, true, false);
+    // Weekly notes → this-week bucket (current week only), repeating excluded.
+    var wkMatch = fn.match(/^(\d{4}-W\d{2})$/);
+    if (wkMatch && wkMatch[1] === currentWeek) {
+      var wParas = calNote.paragraphs;
+      for (var wi = 0; wi < wParas.length; wi++) {
+        var wp = wParas[wi];
+        if (wp.type !== 'open' && wp.type !== 'checklist') continue;
+        if (shouldExcludeFromSources(wp.content, false)) continue;
+        weekList.push({ content: wp.content, rawContent: wp.content, type: wp.type,
+          filename: calNote.filename, lineIndex: wp.lineIndex,
+          noteTitle: wkMatch[1], scheduledDate: wkMatch[1], source: 'scheduled' });
+      }
+    }
+  }
+
+  return { scheduledToday: todayList, scheduledWeek: weekList };
 }
 
 // ============================================
@@ -1449,6 +1468,21 @@ function buildSourceTasksGroupedByNote(tasks, planContentSet) {
   return html;
 }
 
+// Dropdown controlling how many past days of daily notes the Plan scan covers.
+function buildLookbackControl(days) {
+  days = Number(days) || 7;
+  var opts = [7, 14, 30, 60, 90, 180];
+  if (opts.indexOf(days) < 0) opts.push(days);
+  opts.sort(function(a, b) { return a - b; });
+  var h = '<div class="rf-source-controls"><label class="rf-lookback-label">Scan past ' +
+    '<select class="rf-range-dropdown" data-action="setPlanLookback" title="How far back to scan daily notes for overdue tasks">';
+  for (var i = 0; i < opts.length; i++) {
+    h += '<option value="' + opts[i] + '"' + (opts[i] === days ? ' selected' : '') + '>' + opts[i] + ' days</option>';
+  }
+  h += '</select></label></div>';
+  return h;
+}
+
 function buildPlanTab(data) {
   var planTasks = data.planTasks;
   var calendarEvents = data.calendarEvents || [];
@@ -1549,6 +1583,7 @@ function buildPlanTab(data) {
 
   // Overdue
   html += '<div class="rf-source-list" data-source="overdue">';
+  html += buildLookbackControl(data.planLookbackDays);
   if (overdueTasks.length === 0) {
     html += '<div class="rf-empty">No overdue tasks</div>';
   } else {
@@ -3015,6 +3050,7 @@ async function showReflect(tab, targetWindowID) {
         data.dailyTasks = cached.dailyTasks;
         data.scheduledToday = cached.scheduledToday;
         data.scheduledWeek = cached.scheduledWeek;
+        data.planLookbackDays = config.planLookbackDays;
       }
       // today and focus tabs only need planTasks (already loaded)
     }
@@ -3085,6 +3121,12 @@ async function onMessageFromHTMLView(actionType, data) {
     switch (actionType) {
       case 'switchTab':
         await showReflect(msg.tab, replyWindowID);
+        break;
+
+      case 'setPlanLookback':
+        savePlanLookback(parseInt(msg.days, 10) || 7);
+        invalidateTaskCache();
+        await showReflect('plan', replyWindowID);
         break;
 
       case 'addCalendarToPlan':

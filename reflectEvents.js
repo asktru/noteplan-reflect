@@ -1054,6 +1054,14 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   });
 
+  // Plan lookback dropdown (how many past days of daily notes to scan).
+  document.body.addEventListener('change', function(e) {
+    var sel = e.target.closest('[data-action="setPlanLookback"]');
+    if (!sel) return;
+    var days = parseInt(sel.value, 10);
+    if (days > 0) sendToPlugin('setPlanLookback', JSON.stringify({ days: days }));
+  });
+
   // Markdown toolbar for focus notes
   document.body.addEventListener('click', function(e) {
     var tbBtn = e.target.closest('[data-md-action]');
