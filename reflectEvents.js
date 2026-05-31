@@ -1,7 +1,21 @@
 // asktru.Reflect — reflectEvents.js
 // HTML-side event handlers for the Reflect dashboard
 
-/* global sendMessageToPlugin */
+/* global sendMessageToPlugin, npWindowID */
+
+// receivingPluginID and npWindowID are set in the inline script before the bridge
+// loads. Route every outgoing message through sendToPlugin so each payload carries
+// the originating window's ID; the plugin replies to that window (sidebar embed vs.
+// separate floating window). sendMessageToPlugin is `const` in the bridge and can't
+// be monkey-patched, so we wrap it.
+function sendToPlugin(action, data) {
+  try {
+    var d = data ? JSON.parse(data) : {};
+    if (typeof npWindowID !== 'undefined' && npWindowID && d._windowID === undefined) d._windowID = npWindowID;
+    data = JSON.stringify(d);
+  } catch (e) {}
+  return sendMessageToPlugin(action, data);
+}
 
 // ============================================
 // STATE
@@ -307,7 +321,7 @@ function handleRemoveFromPlan(target) {
   updatePlanTotal();
 
   // 6. Persist to backend (no reply expected)
-  sendMessageToPlugin('removeFromPlan', JSON.stringify({ lineIndex: lineIndex }));
+  sendToPlugin('removeFromPlan', JSON.stringify({ lineIndex: lineIndex }));
 
   showToast('Removed from plan');
 }
@@ -411,7 +425,7 @@ function handlePickTime(el) {
   var lineIndex = el.dataset.lineIndex;
   var estimate = el.dataset.estimate;
   closeTimePicker();
-  sendMessageToPlugin('setTimeEstimate', JSON.stringify({ lineIndex: lineIndex, estimate: estimate }));
+  sendToPlugin('setTimeEstimate', JSON.stringify({ lineIndex: lineIndex, estimate: estimate }));
 }
 
 // ============================================
@@ -421,7 +435,7 @@ function handlePickTime(el) {
 function handleTabClick(tabEl) {
   var tab = tabEl.dataset.tab;
   if (!tab || tab === currentTab) return;
-  sendMessageToPlugin('switchTab', JSON.stringify({ tab: tab }));
+  sendToPlugin('switchTab', JSON.stringify({ tab: tab }));
 }
 
 // ============================================
@@ -450,9 +464,9 @@ function showEditFocusStartTime(btn) {
     input.focus();
     input.addEventListener('keydown', function(e) {
       if (e.key === 'Enter') {
-        sendMessageToPlugin('setFocusStartTime', JSON.stringify({ time: input.value }));
+        sendToPlugin('setFocusStartTime', JSON.stringify({ time: input.value }));
       } else if (e.key === 'Escape') {
-        sendMessageToPlugin('switchTab', JSON.stringify({ tab: 'focus' }));
+        sendToPlugin('switchTab', JSON.stringify({ tab: 'focus' }));
       }
     });
   }
@@ -488,7 +502,7 @@ function handleSourceTabClick(tabEl) {
   if (source === 'clickup') {
     var loading = targetList && targetList.querySelector('.rf-clickup-loading');
     if (loading) {
-      sendMessageToPlugin('fetchClickUp', JSON.stringify({}));
+      sendToPlugin('fetchClickUp', JSON.stringify({}));
     }
   }
 }
@@ -628,7 +642,7 @@ function handleAddCalendarToPlan(el) {
     if (!calendarLink) calendarLink = task.dataset.calendarLink || '';
   }
   if (calendarLink) {
-    sendMessageToPlugin('addCalendarToPlan', JSON.stringify({ content: content, durationStr: duration, calendarLink: calendarLink }));
+    sendToPlugin('addCalendarToPlan', JSON.stringify({ content: content, durationStr: duration, calendarLink: calendarLink }));
   }
 }
 
@@ -643,7 +657,7 @@ function handleAddToPlanWithDuration(el) {
     }
   }
   if (content) {
-    sendMessageToPlugin('addToPlanWithDuration', JSON.stringify({ content: content, durationStr: duration }));
+    sendToPlugin('addToPlanWithDuration', JSON.stringify({ content: content, durationStr: duration }));
   }
 }
 
@@ -658,7 +672,7 @@ function handleAddToPlan(el) {
     }
   }
   if (content) {
-    sendMessageToPlugin('addToPlan', JSON.stringify({ content: content, clickupId: clickupId }));
+    sendToPlugin('addToPlan', JSON.stringify({ content: content, clickupId: clickupId }));
   }
 }
 
@@ -680,13 +694,13 @@ function handleKeyboardShortcut(e) {
     var calendarLink = hoveredTask.dataset.calendarLink || '';
     if (content) {
       if (calendarLink) {
-        sendMessageToPlugin('addCalendarToPlan', JSON.stringify({ content: content, durationStr: duration, calendarLink: calendarLink }));
+        sendToPlugin('addCalendarToPlan', JSON.stringify({ content: content, durationStr: duration, calendarLink: calendarLink }));
       } else if (clickupId) {
-        sendMessageToPlugin('addToPlan', JSON.stringify({ content: content, clickupId: clickupId }));
+        sendToPlugin('addToPlan', JSON.stringify({ content: content, clickupId: clickupId }));
       } else if (duration) {
-        sendMessageToPlugin('addToPlanWithDuration', JSON.stringify({ content: content, durationStr: duration }));
+        sendToPlugin('addToPlanWithDuration', JSON.stringify({ content: content, durationStr: duration }));
       } else {
-        sendMessageToPlugin('addToPlan', JSON.stringify({ content: content }));
+        sendToPlugin('addToPlan', JSON.stringify({ content: content }));
       }
       showToast('Added to plan');
     }
@@ -700,7 +714,7 @@ function handleKeyboardShortcut(e) {
 function handlePlanToggle(el) {
   var lineIndex = el.dataset.lineIndex;
   if (lineIndex !== undefined) {
-    sendMessageToPlugin('togglePlanTask', JSON.stringify({ lineIndex: lineIndex }));
+    sendToPlugin('togglePlanTask', JSON.stringify({ lineIndex: lineIndex }));
   }
 }
 
@@ -773,7 +787,7 @@ function handleDrop(e) {
     orderedLineIndices.push(parseInt(item.dataset.lineIndex, 10));
   });
 
-  sendMessageToPlugin('reorderPlan', JSON.stringify({ orderedLineIndices: orderedLineIndices }));
+  sendToPlugin('reorderPlan', JSON.stringify({ orderedLineIndices: orderedLineIndices }));
 }
 
 function handleDragEnd() {
@@ -847,7 +861,7 @@ function updateTimerDisplay() {
 function handleStartFocus(el) {
   var content = el.dataset.content;
   if (content) {
-    sendMessageToPlugin('startFocus', JSON.stringify({ taskContent: content }));
+    sendToPlugin('startFocus', JSON.stringify({ taskContent: content }));
   }
 }
 
@@ -892,13 +906,13 @@ function extractNotesMarkdown() {
 
 function handleStopFocus() {
   var notes = extractNotesMarkdown();
-  sendMessageToPlugin('stopFocus', JSON.stringify({ notes: notes }));
+  sendToPlugin('stopFocus', JSON.stringify({ notes: notes }));
 }
 
 function handleCompleteFocusTask(el) {
   var lineIndex = el.dataset.lineIndex;
   var notes = extractNotesMarkdown();
-  sendMessageToPlugin('completeFocusTask', JSON.stringify({ lineIndex: lineIndex, notes: notes }));
+  sendToPlugin('completeFocusTask', JSON.stringify({ lineIndex: lineIndex, notes: notes }));
 }
 
 // ============================================
@@ -963,11 +977,11 @@ document.addEventListener('DOMContentLoaded', function() {
       case 'saveFocusStartTime':
         var input = document.getElementById('focusStartTimeInput');
         if (input && input.value) {
-          sendMessageToPlugin('setFocusStartTime', JSON.stringify({ time: input.value }));
+          sendToPlugin('setFocusStartTime', JSON.stringify({ time: input.value }));
         }
         break;
       case 'cancelEditFocusStartTime':
-        sendMessageToPlugin('switchTab', JSON.stringify({ tab: 'focus' }));
+        sendToPlugin('switchTab', JSON.stringify({ tab: 'focus' }));
         break;
       case 'addToPlan':
         handleAddToPlan(target);
@@ -988,18 +1002,18 @@ document.addEventListener('DOMContentLoaded', function() {
         handleCompleteFocusTask(target);
         break;
       case 'startFocusFromToday':
-        sendMessageToPlugin('startFocusFromToday', JSON.stringify({ taskContent: target.dataset.content }));
+        sendToPlugin('startFocusFromToday', JSON.stringify({ taskContent: target.dataset.content }));
         break;
       case 'stopFocusFromToday':
-        sendMessageToPlugin('stopFocusFromToday', JSON.stringify({}));
+        sendToPlugin('stopFocusFromToday', JSON.stringify({}));
         break;
       case 'saveShutdown':
         var highlightsEl = document.getElementById('shutdownHighlights');
-        sendMessageToPlugin('saveShutdown', JSON.stringify({ highlights: highlightsEl ? highlightsEl.value : '' }));
+        sendToPlugin('saveShutdown', JSON.stringify({ highlights: highlightsEl ? highlightsEl.value : '' }));
         break;
       case 'movePlanUp':
       case 'movePlanDown':
-        sendMessageToPlugin(action, JSON.stringify({ lineIndex: target.dataset.lineIndex }));
+        sendToPlugin(action, JSON.stringify({ lineIndex: target.dataset.lineIndex }));
         break;
       case 'addToPlanWithDuration':
         handleAddToPlanWithDuration(target);
@@ -1014,19 +1028,19 @@ document.addEventListener('DOMContentLoaded', function() {
         handlePickTime(target);
         break;
       case 'cyclePlanPriority':
-        sendMessageToPlugin('cyclePlanPriority', JSON.stringify({ lineIndex: target.dataset.lineIndex }));
+        sendToPlugin('cyclePlanPriority', JSON.stringify({ lineIndex: target.dataset.lineIndex }));
         break;
       case 'openDailyNote':
-        sendMessageToPlugin('openDailyNote', JSON.stringify({}));
+        sendToPlugin('openDailyNote', JSON.stringify({}));
         break;
       case 'openNoteFile':
         if (target.dataset.filename) {
-          sendMessageToPlugin('openNoteFile', JSON.stringify({ filename: target.dataset.filename }));
+          sendToPlugin('openNoteFile', JSON.stringify({ filename: target.dataset.filename }));
         }
         break;
       case 'openExternalUrl':
         if (target.dataset.url) {
-          sendMessageToPlugin('openExternalUrl', JSON.stringify({ url: target.dataset.url }));
+          sendToPlugin('openExternalUrl', JSON.stringify({ url: target.dataset.url }));
         }
         break;
     }
@@ -1124,7 +1138,7 @@ document.addEventListener('DOMContentLoaded', function() {
         highlightsLoading = true;
         loadMore.innerHTML = '<span class="rf-text-muted">Loading...</span>';
         var offset = parseInt(loadMore.dataset.offset) || 0;
-        sendMessageToPlugin('loadMoreHighlights', { offset: offset });
+        sendToPlugin('loadMoreHighlights', { offset: offset });
       }
     });
   }

@@ -7,6 +7,7 @@
 
 var PLUGIN_ID = 'asktru.Reflect';
 var WINDOW_ID = 'asktru.Reflect.dashboard';
+var WINDOW_ID_FLOATING = 'asktru.Reflect.dashboardWindow';
 var REFLECT_HEADING = 'Reflect';
 
 // Task cache — avoid re-scanning on every tab switch
@@ -2182,7 +2183,7 @@ function buildDashboardHTML(tab, data) {
   return html;
 }
 
-function buildFullHTML(bodyContent, activeTab, timerStart) {
+function buildFullHTML(bodyContent, activeTab, timerStart, windowID) {
   var themeCSS = getThemeCSS();
   var pluginCSS = getInlineCSS();
 
@@ -2204,7 +2205,7 @@ function buildFullHTML(bodyContent, activeTab, timerStart) {
     '</head>\n<body' + bodyAttrs + '>\n' +
     bodyContent + '\n' +
     '  <div class="rf-toast" id="rfToast"></div>\n' +
-    '  <script>\n    var receivingPluginID = \'' + PLUGIN_ID + '\';\n  <\/script>\n' +
+    '  <script>\n    var receivingPluginID = \'' + PLUGIN_ID + '\';\n    var npWindowID = \'' + (windowID || WINDOW_ID) + '\';\n  <\/script>\n' +
     '  <script type="text/javascript" src="reflectEvents.js"><\/script>\n' +
     '  <script type="text/javascript" src="../np.Shared/pluginToHTMLCommsBridge.js"><\/script>\n' +
     '</body>\n</html>';
@@ -2977,7 +2978,7 @@ priCSSReflect() +
 // MAIN ENTRY & MESSAGE HANDLING
 // ============================================
 
-async function showReflect(tab) {
+async function showReflect(tab, targetWindowID) {
   try {
     CommandBar.showLoading(true, 'Loading Reflect...');
     await CommandBar.onAsyncThread();
@@ -3021,31 +3022,38 @@ async function showReflect(tab) {
       data.highlightsHistory = getHighlightsHistory(5, 0);
     }
 
+    var winID = targetWindowID || WINDOW_ID;
+    var isFloating = winID === WINDOW_ID_FLOATING;
+
     var bodyContent = buildDashboardHTML(activeTab, data);
     var timerStart = (config.timerState && config.timerState.startTime) ? config.timerState.startTime : null;
-    var fullHTML = buildFullHTML(bodyContent, activeTab, timerStart);
+    var fullHTML = buildFullHTML(bodyContent, activeTab, timerStart, winID);
 
     await CommandBar.onMainThread();
     CommandBar.showLoading(false);
 
     var winOptions = {
-      customId: WINDOW_ID,
-      savedFilename: '../../asktru.Reflect/reflect.html',
+      customId: winID,
+      savedFilename: isFloating ? '../../asktru.Reflect/reflect_window.html' : '../../asktru.Reflect/reflect.html',
       shouldFocus: true,
       reuseUsersWindowRect: true,
       headerBGColor: 'transparent',
       autoTopPadding: true,
       showReloadButton: true,
       reloadPluginID: PLUGIN_ID,
-      reloadCommandName: 'Reflect',
+      reloadCommandName: isFloating ? 'Open in separate window' : 'Open in sidebar',
       icon: 'fa-sun',
       iconColor: '#F97316',
     };
 
-    var result = await HTMLView.showInMainWindow(fullHTML, 'Reflect', winOptions);
-    if (!result || !result.success) {
-      console.log('Reflect: showInMainWindow failed, falling back');
+    if (isFloating) {
       await HTMLView.showWindowWithOptions(fullHTML, 'Reflect', winOptions);
+    } else {
+      var result = await HTMLView.showInMainWindow(fullHTML, 'Reflect', winOptions);
+      if (!result || !result.success) {
+        console.log('Reflect: showInMainWindow failed, falling back');
+        await HTMLView.showWindowWithOptions(fullHTML, 'Reflect', winOptions);
+      }
     }
   } catch (err) {
     CommandBar.showLoading(false);
@@ -3058,14 +3066,21 @@ async function refreshReflect() {
   await showReflect();
 }
 
+// Open the same dashboard in a separate (floating) window, distinct from the
+// sidebar embed so the two views stay independently routed.
+async function showReflectWindow() {
+  await showReflect(null, WINDOW_ID_FLOATING);
+}
+
 async function onMessageFromHTMLView(actionType, data) {
   try {
     var msg = typeof data === 'string' ? JSON.parse(data) : data;
+    var replyWindowID = (msg && msg._windowID) || WINDOW_ID;
     var note = getTodayNote();
 
     switch (actionType) {
       case 'switchTab':
-        await showReflect(msg.tab);
+        await showReflect(msg.tab, replyWindowID);
         break;
 
       case 'addCalendarToPlan':
@@ -3104,7 +3119,7 @@ async function onMessageFromHTMLView(actionType, data) {
           var parsedPri = extractPriority(parsedContent.content);
           var contentHTML = renderTaskContent(parsedPri.content);
 
-          await sendToHTMLWindow(WINDOW_ID, 'TASK_ADDED_TO_PLAN', {
+          await sendToHTMLWindow(replyWindowID, 'TASK_ADDED_TO_PLAN', {
             content: planContent,
             contentHTML: contentHTML,
             lineIndex: newTask ? newTask.lineIndex : -1,
@@ -3124,7 +3139,7 @@ async function onMessageFromHTMLView(actionType, data) {
           // Send back updated line indices — DOM is already in correct order
           var reorderedPlan = getPlanTasks(note);
           var newIndices = reorderedPlan.map(function(t) { return t.lineIndex; });
-          await sendToHTMLWindow(WINDOW_ID, 'PLAN_REORDERED', { lineIndices: newIndices });
+          await sendToHTMLWindow(replyWindowID, 'PLAN_REORDERED', { lineIndices: newIndices });
         }
         break;
 
@@ -3133,7 +3148,7 @@ async function onMessageFromHTMLView(actionType, data) {
           togglePlanTask(note, parseInt(msg.lineIndex, 10));
           invalidateTaskCache();
           var config = getSettings();
-          await showReflect(config.lastTab || 'today');
+          await showReflect(config.lastTab || 'today', replyWindowID);
         }
         break;
 
@@ -3149,7 +3164,7 @@ async function onMessageFromHTMLView(actionType, data) {
         if (note && msg.lineIndex !== undefined) {
           setTimeEstimate(note, parseInt(msg.lineIndex, 10), msg.estimate || '');
           // Send back updated estimate without full re-render
-          await sendToHTMLWindow(WINDOW_ID, 'TIME_ESTIMATE_SET', {
+          await sendToHTMLWindow(replyWindowID, 'TIME_ESTIMATE_SET', {
             lineIndex: parseInt(msg.lineIndex, 10),
             estimate: msg.estimate || '',
           });
@@ -3159,14 +3174,14 @@ async function onMessageFromHTMLView(actionType, data) {
       case 'startFocus':
         if (note && msg.taskContent) {
           startFocusSession(note, msg.taskContent);
-          await showReflect('focus');
+          await showReflect('focus', replyWindowID);
         }
         break;
 
       case 'startFocusFromToday':
         if (note && msg.taskContent) {
           startFocusSession(note, msg.taskContent);
-          await showReflect('today');
+          await showReflect('today', replyWindowID);
         }
         break;
 
@@ -3174,14 +3189,14 @@ async function onMessageFromHTMLView(actionType, data) {
         if (note) {
           stopFocusSession(note, '');
           invalidateTaskCache();
-          await showReflect('today');
+          await showReflect('today', replyWindowID);
         }
         break;
 
       case 'stopFocus':
         if (note) {
           stopFocusSession(note, msg.notes || '');
-          await showReflect('focus');
+          await showReflect('focus', replyWindowID);
         }
         break;
 
@@ -3200,7 +3215,7 @@ async function onMessageFromHTMLView(actionType, data) {
                 newD.setDate(newD.getDate() - 1);
               }
               updateFocusStartTime(note, newD.getTime());
-              await showReflect('focus');
+              await showReflect('focus', replyWindowID);
             }
           }
         }
@@ -3225,7 +3240,7 @@ async function onMessageFromHTMLView(actionType, data) {
               newOrder[swapPos] = tmp;
               reorderPlanTasks(note, newOrder);
               invalidateTaskCache();
-              await showReflect('today');
+              await showReflect('today', replyWindowID);
             }
           }
         }
@@ -3239,7 +3254,7 @@ async function onMessageFromHTMLView(actionType, data) {
             stopFocusSession(note, msg.notes || '');
           }
           togglePlanTask(note, parseInt(msg.lineIndex, 10));
-          await showReflect('focus');
+          await showReflect('focus', replyWindowID);
         }
         break;
 
@@ -3260,7 +3275,7 @@ async function onMessageFromHTMLView(actionType, data) {
           stripped = stripped.replace(/\s*\[ClickUp\]\([^)]+\)\s*$/, '').trim();
           if (stripped) addedContents[stripped] = true;
         }
-        await sendToHTMLWindow(WINDOW_ID, 'CLICKUP_TASKS', {
+        await sendToHTMLWindow(replyWindowID, 'CLICKUP_TASKS', {
           tasks: tasks,
           addedClickupIds: addedClickupIds,
           addedContents: addedContents,
@@ -3282,7 +3297,7 @@ async function onMessageFromHTMLView(actionType, data) {
             note.updateParagraph(priPara);
             // Send update to HTML
             var newBadgeHTML = newLevel > 0 ? renderPriorityBadge(newLevel) : '<i class="fa-solid fa-flag rf-pri-none"></i>';
-            await sendToHTMLWindow(WINDOW_ID, 'PLAN_PRIORITY_CHANGED', {
+            await sendToHTMLWindow(replyWindowID, 'PLAN_PRIORITY_CHANGED', {
               lineIndex: priLineIdx,
               level: newLevel,
               badgeHTML: newBadgeHTML,
@@ -3306,7 +3321,7 @@ async function onMessageFromHTMLView(actionType, data) {
           var workedOn = getWorkedOnTasks(focusMapForShutdown, planTasksForShutdown);
           var didntGetTo = getDidntGetToTasks(focusMapForShutdown, planTasksForShutdown);
           saveShutdownData(note, workedOn, didntGetTo, msg.highlights || '');
-          await sendToHTMLWindow(WINDOW_ID, 'SHOW_TOAST', { message: 'Shutdown saved' });
+          await sendToHTMLWindow(replyWindowID, 'SHOW_TOAST', { message: 'Shutdown saved' });
         }
         break;
 
@@ -3325,7 +3340,7 @@ async function onMessageFromHTMLView(actionType, data) {
             highlights: entry.highlights,
           });
         }
-        await sendToHTMLWindow(WINDOW_ID, 'HIGHLIGHTS_LOADED', {
+        await sendToHTMLWindow(replyWindowID, 'HIGHLIGHTS_LOADED', {
           entries: renderedEntries,
           count: moreEntries.length,
           newOffset: moreOffset + moreEntries.length,
@@ -3416,6 +3431,7 @@ async function onUpdateOrInstall() {
 // ============================================
 
 globalThis.showReflect = showReflect;
+globalThis.showReflectWindow = showReflectWindow;
 globalThis.onMessageFromHTMLView = onMessageFromHTMLView;
 globalThis.refreshReflect = refreshReflect;
 globalThis.onUpdateOrInstall = onUpdateOrInstall;

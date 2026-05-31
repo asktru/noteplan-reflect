@@ -62,9 +62,9 @@
   ],
   "plugin.commands": [
     {
-      "name": "Reflect",
+      "name": "Open in sidebar",
       "alias": ["reflect", "daily plan", "plan", "focus"],
-      "description": "Open the Reflect daily planning dashboard",
+      "description": "Open the Reflect daily planning dashboard in the sidebar",
       "jsFunction": "showReflect",
       "sidebarView": {
         "windowID": "asktru.Reflect.dashboard",
@@ -72,6 +72,12 @@
         "icon": "fa-sun-bright",
         "iconColor": "#F97316"
       }
+    },
+    {
+      "name": "Open in separate window",
+      "alias": ["reflect", "daily plan", "plan", "focus"],
+      "description": "Open the Reflect daily planning dashboard in a separate window",
+      "jsFunction": "showReflectWindow"
     },
     {
       "name": "onMessageFromHTMLView",
