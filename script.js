@@ -3485,13 +3485,6 @@ async function onUpdateOrInstall() {
   catch (e) { console.log('Reflect onUpdateOrInstall failed: ' + (e && e.message ? e.message : String(e))); }
 }
 
-// NotePlan invokes this whenever the plugin's settings change (e.g. writing
-// DataStore.settings). Define it to avoid an "undefined function" console error
-// and drop the task cache so the next view reflects new settings.
-function onSettingsUpdated() {
-  invalidateTaskCache();
-}
-
 // ============================================
 // EXPORTS
 // ============================================
@@ -3501,4 +3494,3 @@ globalThis.showReflectWindow = showReflectWindow;
 globalThis.onMessageFromHTMLView = onMessageFromHTMLView;
 globalThis.refreshReflect = refreshReflect;
 globalThis.onUpdateOrInstall = onUpdateOrInstall;
-globalThis.onSettingsUpdated = onSettingsUpdated;
