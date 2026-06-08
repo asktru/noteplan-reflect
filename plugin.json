@@ -7,8 +7,8 @@
   "plugin.description": "Sunsama-like daily planning: plan your day, focus on tasks, track time.",
   "plugin.icon": "🪞",
   "plugin.author": "asktru",
-  "plugin.version": "1.1.0",
-  "plugin.lastUpdateInfo": "Plan tab redesign, ClickUp improvements, Today timeline preview with mobile drawer.",
+  "plugin.version": "1.2.0",
+  "plugin.lastUpdateInfo": "Faster Plan view (single bounded scan + lookback dropdown), a new 'Open in separate window' command, Today-timeline editing, ClickUp status filtering, and automatic np.Shared installation.",
   "plugin.script": "script.js",
   "plugin.isRemote": "false",
   "plugin.requiredFiles": [

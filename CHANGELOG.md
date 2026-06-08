@@ -1,5 +1,15 @@
 # What's changed in 🪞 Reflect plugin?
 
+## [1.2.0] 2026-06-07
+### New
+- **Open in separate window** command (roomy 1200×800 default) with per-window reply routing.
+- Edit a focus block's start time and a project's remaining time directly on the Today timeline.
+- np.Shared is auto-installed on install/update.
+
+### Changes
+- **Faster Plan view**: a single bounded scan with a lookback dropdown; project notes without a schedule marker are skipped.
+- ClickUp tasks are filtered by a status blocklist instead of an allowlist.
+
 ## [1.1.0] 2026-04-30
 ### New
 - **Today timeline**: calendar events sit at their scheduled times; remaining incomplete tasks with a time estimate are projected sequentially in plan order, splitting around calendar events. Hour gridlines, "Now" line, and per-event colors included.
